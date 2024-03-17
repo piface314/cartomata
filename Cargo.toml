@@ -1,0 +1,13 @@
+[package]
+name = "cartomata"
+authors = ["piface314"]
+license = "MIT"
+version = "0.1.0"
+edition = "2021"
+description = ""
+
+[dependencies]
+csv = "1.3.0"
+ril = { path = "../ril", features = ["all"] }
+serde = "1.0.197"
+sqlite = "0.33.0"
