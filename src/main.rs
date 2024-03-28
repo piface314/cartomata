@@ -1,40 +1,32 @@
 use cartomata::cli::Cli;
-use cartomata::error::{Error, Result};
+use cartomata::data::source::{DataSource, CsvSource, DataSourceType, SqliteSource};
 use cartomata::template::Template;
 use clap::Parser;
-use std::fs;
-use std::path::PathBuf;
-
-#[cfg(target_os = "windows")]
-fn template_folder() -> Result<PathBuf> {
-    let home = std::env::var("APPDATA").map_err(|_| Error::MissingVariable("APPDATA"))?;
-    let mut home = PathBuf::from(home);
-    home.push("cartomata");
-    Ok(home)
-}
-
-#[cfg(target_os = "linux")]
-fn template_folder() -> Result<PathBuf> {
-    let home = std::env::var("HOME").map_err(|_| Error::MissingVariable("HOME"))?;
-    let mut home = PathBuf::from(home);
-    home.push(".config");
-    home.push("cartomata");
-    Ok(home)
-}
 
 fn main() {
+    std::panic::set_hook(Box::new(|panic_info| {
+        if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            eprintln!("{s}");
+        } else {
+            eprintln!("{panic_info}");
+        }
+    }));
     let cli = Cli::parse();
-    let mut template_path = template_folder().unwrap_or_else(|e| panic!("{e}"));
-    template_path.push(&cli.template);
-    let mut template_toml_path = template_path.clone();
-    template_toml_path.push("template.toml");
-    let template = fs::read_to_string(&template_toml_path).unwrap_or_else(|e| {
-        panic!(
-            "Failed to open {}: {e}",
-            template_toml_path.to_str().unwrap_or("")
-        )
-    });
-    let template: Template =
-        toml::from_str(&template).unwrap_or_else(|e| panic!("Invalid template file: {e}"));
-    println!("{:?}", template);
+    let template = Template::find(cli.template).unwrap_or_else(|e| panic!("{e}"));
+    let source_type = cli
+        .source
+        .or(template.source.default)
+        .expect("Choose a data source");
+    match source_type {
+        DataSourceType::Sqlite => {
+            let mut source = SqliteSource::open(&template, &cli.input).unwrap_or_else(|e| panic!("{e}"));
+            let cards = source.fetch_generic(&cli.ids);
+            println!("{cards:?}");
+        }
+        DataSourceType::Csv => {
+            let mut source = CsvSource::open(&template, &cli.input).unwrap_or_else(|e| panic!("{e}"));
+            let cards = source.fetch_generic(&cli.ids);
+            println!("{cards:?}");
+        }
+    };
 }

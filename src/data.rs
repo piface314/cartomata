@@ -3,4 +3,4 @@
 pub mod card;
 pub mod source;
 
-pub use card::{CardData, CardField, CardFieldType, CardSchema};
+pub use card::{GCard, Value, Type, Schema};

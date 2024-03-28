@@ -18,7 +18,7 @@ pub struct Cli {
 
     /// Input data path
     #[arg(short, long)]
-    pub input: PathBuf,
+    pub input: String,
 
     /// Output images path
     #[arg(short, long)]
