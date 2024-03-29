@@ -62,7 +62,7 @@ impl<'a> CsvSource<'a> {
 }
 
 impl<'a> DataSource<'a> for CsvSource<'a> {
-    fn fetch_generic(&mut self, ids: &Vec<String>) -> Vec<Result<DynCard<'a>>> {
+    fn fetch_dynamic(&mut self, ids: &Vec<String>) -> Vec<Result<DynCard<'a>>> {
         let iterator = self
             .reader
             .records()

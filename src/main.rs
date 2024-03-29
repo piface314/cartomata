@@ -17,6 +17,6 @@ fn main() {
         .or(template.source.default)
         .expect("Choose a data source");
     let mut source = source_type.open(&template, &cli.input).unwrap_or_else(|e| panic!("{e}"));
-    let cards = source.fetch_generic(&cli.ids);
+    let cards = source.fetch_dynamic(&cli.ids);
     println!("{cards:?}");
 }

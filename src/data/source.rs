@@ -15,7 +15,7 @@ use serde::Deserialize;
 
 
 pub trait DataSource<'a> {
-    fn fetch_generic(&mut self, ids: &Vec<String>) -> Vec<Result<DynCard<'a>>>;
+    fn fetch_dynamic(&mut self, ids: &Vec<String>) -> Vec<Result<DynCard<'a>>>;
 }
 
 

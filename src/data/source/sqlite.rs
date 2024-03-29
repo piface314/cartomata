@@ -82,7 +82,7 @@ impl<'a> SqliteSource<'a> {
 }
 
 impl<'a> DataSource<'a> for SqliteSource<'a> {
-    fn fetch_generic(&mut self, ids: &Vec<String>) -> Vec<Result<DynCard<'a>>> {
+    fn fetch_dynamic(&mut self, ids: &Vec<String>) -> Vec<Result<DynCard<'a>>> {
         let res = self.prepare(ids);
         match res {
             Ok(stmt) => stmt
