@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::data::source::DataSource;
-use crate::data::{GCard, Type, Schema, Value};
+use crate::data::{DynCard, Schema, Type, Value};
 use crate::error::{Error, Result};
 use crate::template::Template;
 
@@ -23,6 +23,25 @@ pub struct SqliteSource<'a> {
 }
 
 impl<'a> SqliteSource<'a> {
+    pub fn open(template: &'a Template, path: &impl AsRef<str>) -> Result<SqliteSource<'a>> {
+        let config = template
+            .source
+            .sqlite
+            .as_ref()
+            .ok_or_else(|| Error::MissingSourceConfig("sqlite"))?;
+        let schema = &template.schema;
+        let path = path.as_ref();
+        let connection = sqlite::open(path)
+            .map_err(|e| Error::FailedOpenDataSource(path.to_string(), e.to_string()))?;
+        let id_type = *schema.get("id").ok_or_else(|| Error::MissingIdField)?;
+        Ok(Self {
+            query: &config.query,
+            id_type,
+            connection,
+            schema,
+        })
+    }
+
     fn prepare(&self, ids: &Vec<String>) -> Result<sqlite::Statement> {
         let n = ids.len();
         if n == 0 {
@@ -63,26 +82,7 @@ impl<'a> SqliteSource<'a> {
 }
 
 impl<'a> DataSource<'a> for SqliteSource<'a> {
-    fn open(template: &'a Template, path: &impl AsRef<str>) -> Result<impl DataSource<'a>> {
-        let config = template
-            .source
-            .sqlite
-            .as_ref()
-            .ok_or_else(|| Error::MissingSourceConfig("sqlite"))?;
-        let schema = &template.schema;
-        let path = path.as_ref();
-        let connection = sqlite::open(path)
-            .map_err(|e| Error::FailedOpenDataSource(path.to_string(), e.to_string()))?;
-        let id_type = *schema.get("id").ok_or_else(|| Error::MissingIdField)?;
-        Ok(Self {
-            query: &config.query,
-            id_type,
-            connection,
-            schema,
-        })
-    }
-
-    fn fetch_generic(&mut self, ids: &Vec<String>) -> Vec<Result<GCard<'a>>> {
+    fn fetch_generic(&mut self, ids: &Vec<String>) -> Vec<Result<DynCard<'a>>> {
         let res = self.prepare(ids);
         match res {
             Ok(stmt) => stmt

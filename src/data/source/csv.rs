@@ -1,7 +1,7 @@
 //! Contains implementation for CSV as card data source.
 
 use crate::data::source::DataSource;
-use crate::data::{GCard, Value, Type};
+use crate::data::{DynCard, Type, Value};
 use crate::error::{Error, Result};
 use crate::template::Template;
 
@@ -22,9 +22,13 @@ pub struct CsvSource<'a> {
     reader: csv::Reader<std::fs::File>,
 }
 
-impl<'a> DataSource<'a> for CsvSource<'a> {
-    fn open(template: &'a Template, path: &impl AsRef<str>) -> Result<impl DataSource<'a>> {
-        let config = template.source.csv.as_ref().ok_or_else(|| Error::MissingSourceConfig("csv"))?;
+impl<'a> CsvSource<'a> {
+    pub fn open(template: &'a Template, path: &impl AsRef<str>) -> Result<CsvSource<'a>> {
+        let config = template
+            .source
+            .csv
+            .as_ref()
+            .ok_or_else(|| Error::MissingSourceConfig("csv"))?;
         let schema = &template.schema;
         let path = path.as_ref();
         let mut reader = csv::ReaderBuilder::new()
@@ -55,14 +59,16 @@ impl<'a> DataSource<'a> for CsvSource<'a> {
             reader,
         })
     }
+}
 
-    fn fetch_generic(&mut self, ids: &Vec<String>) -> Vec<Result<GCard<'a>>> {
+impl<'a> DataSource<'a> for CsvSource<'a> {
+    fn fetch_generic(&mut self, ids: &Vec<String>) -> Vec<Result<DynCard<'a>>> {
         let iterator = self
             .reader
             .records()
             .map(|r| r.map_err(|e| Error::FailedRecordRead(e.to_string())));
 
-        let read_card = |record: StringRecord| -> Result<GCard> {
+        let read_card = |record: StringRecord| -> Result<DynCard> {
             let mut card = HashMap::new();
             for (field, (i, ftype)) in &self.columns {
                 let v = record

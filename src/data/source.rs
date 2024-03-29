@@ -6,7 +6,7 @@ pub mod sqlite;
 pub use csv::{CsvSource, CsvSourceConfig};
 pub use sqlite::{SqliteSource, SqliteSourceConfig};
 
-use crate::data::GCard;
+use crate::data::DynCard;
 use crate::error::Result;
 use crate::template::Template;
 
@@ -15,8 +15,7 @@ use serde::Deserialize;
 
 
 pub trait DataSource<'a> {
-    fn open(template: &'a Template, path: &impl AsRef<str>) -> Result<impl DataSource<'a>>;
-    fn fetch_generic(&mut self, ids: &Vec<String>) -> Vec<Result<GCard<'a>>>;
+    fn fetch_generic(&mut self, ids: &Vec<String>) -> Vec<Result<DynCard<'a>>>;
 }
 
 
@@ -27,4 +26,13 @@ pub enum DataSourceType {
     Csv,
     /// SQLite source
     Sqlite,
+}
+
+impl DataSourceType {
+    pub fn open<'a>(&self, template: &'a Template, path: &impl AsRef<str>) -> Result<Box<dyn DataSource<'a> + 'a>> {
+        match self {
+            DataSourceType::Csv => CsvSource::open(template, path).map(|s| Box::new(s) as Box<dyn DataSource>),
+            DataSourceType::Sqlite => SqliteSource::open(template, path).map(|s| Box::new(s) as Box<dyn DataSource>),
+        }
+    }
 }

@@ -3,4 +3,4 @@
 pub mod card;
 pub mod source;
 
-pub use card::{GCard, Value, Type, Schema};
+pub use card::{DynCard, Value, Type, Schema};

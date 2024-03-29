@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 pub type Schema = HashMap<String, Type>;
-pub type GCard<'a> = HashMap<&'a str, Value>;
+pub type DynCard<'a> = HashMap<&'a str, Value>;
 
 #[derive(Debug, Clone)]
 pub enum Value {
