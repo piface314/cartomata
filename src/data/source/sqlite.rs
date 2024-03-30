@@ -1,15 +1,14 @@
 //! Contains implementation for SQLite as card data source.
 
-use std::collections::HashMap;
-
 use crate::data::source::DataSource;
-use crate::data::{DynCard, Schema, Type, Value};
+use crate::data::card::Card;
 use crate::error::{Error, Result};
 use crate::template::Template;
 
 use itertools::Itertools;
 use rusqlite::{params_from_iter, Connection};
 use serde::Deserialize;
+use serde_rusqlite::from_rows;
 
 #[derive(Debug, Deserialize)]
 pub struct SqliteSourceConfig {
@@ -19,7 +18,6 @@ pub struct SqliteSourceConfig {
 pub struct SqliteSource<'a> {
     query: &'a str,
     connection: Connection,
-    schema: &'a Schema,
 }
 
 impl<'a> SqliteSource<'a> {
@@ -29,20 +27,18 @@ impl<'a> SqliteSource<'a> {
             .sqlite
             .as_ref()
             .ok_or_else(|| Error::MissingSourceConfig("sqlite"))?;
-        let schema = &template.schema;
         let path = path.as_ref();
         let connection = Connection::open(path)
             .map_err(|e| Error::FailedOpenDataSource(path.to_string(), e.to_string()))?;
         Ok(Self {
             query: &config.query,
-            connection,
-            schema,
+            connection
         })
     }
 }
 
-impl<'a> DataSource<'a> for SqliteSource<'a> {
-    fn fetch_dynamic(&mut self, ids: &Vec<String>) -> Vec<Result<DynCard<'a>>> {
+impl<'a, C: Card> DataSource<'a, C> for SqliteSource<'a> {
+    fn fetch(&mut self, ids: &Vec<String>) -> Vec<Result<C>> {
         let n = ids.len();
         let stmt_result = if n == 0 {
             self.connection.prepare(self.query)
@@ -58,29 +54,16 @@ impl<'a> DataSource<'a> for SqliteSource<'a> {
         }
 
         let mut stmt = stmt_result.unwrap();
-
-        let rows_result = stmt
-            .query_map(params_from_iter(ids), |row| {
-                let mut card: DynCard = HashMap::new();
-                for (field, ftype) in self.schema.iter() {
-                    let field = field.as_str();
-                    let v = match ftype {
-                        Type::Int => row.get::<_, i64>(field).map(|v| Value::Int(v)),
-                        Type::Float => row.get::<_, f64>(field).map(|v| Value::Float(v)),
-                        Type::String => row.get::<_, String>(field).map(|s| Value::String(s)),
-                        Type::Bool => row.get::<_, bool>(field).map(|v| Value::Bool(v)),
-                    };
-                    card.insert(field, v.unwrap_or(Value::Nil));
-                }
-                Ok(card)
-            })
+        let query_result = stmt
+            .query(params_from_iter(ids))
             .map_err(|e| Error::FailedPrepDataSource(e.to_string()));
 
-        match rows_result {
-            Err(e) => vec![Err(e)],
-            Ok(rows) => rows
-                .map(|r| r.map_err(|e| Error::FailedRecordRead(e.to_string())))
-                .collect(),
+        if let Err(e) = query_result {
+            return vec![Err(e)];
         }
+
+        from_rows::<C>(query_result.unwrap())
+            .map(|r| r.map_err(|e| Error::FailedRecordRead(e.to_string())))
+            .collect()
     }
 }

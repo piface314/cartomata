@@ -18,10 +18,10 @@ use std::path::{Path, PathBuf};
 #[serde(rename_all = "kebab-case")]
 pub struct Template {
     pub template: Base,
+    pub schema: Schema,
     pub assets: Option<AssetsConfig>,
     pub artwork: Option<ArtworkConfig>,
     pub fonts: HashMap<String, FontConfig>,
-    pub schema: Schema,
     pub source: DataSourceConfig,
 }
 
