@@ -13,6 +13,7 @@ pub enum Value {
     Int(i64),
     Float(f64),
     String(String),
+    Bool(bool),
     Nil
 }
 
@@ -22,6 +23,7 @@ pub enum Type {
     Int,
     Float,
     String,
+    Bool,
 }
 
 impl Value {
@@ -31,6 +33,11 @@ impl Value {
             Type::Int => content.parse::<i64>().map(|v| Value::Int(v)).unwrap_or(Value::Nil),
             Type::Float => content.parse::<f64>().map(|v| Value::Float(v)).unwrap_or(Value::Nil),
             Type::String => Value::String(content.to_string()),
+            Type::Bool => match content.to_lowercase().as_str() {
+                "true" => Value::Bool(true),
+                "false" => Value::Bool(false),
+                _ => Value::Nil
+            }
         }
     }
 }
