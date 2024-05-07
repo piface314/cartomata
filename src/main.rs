@@ -1,7 +1,9 @@
 use cartomata::cli::Cli;
 use cartomata::data::{Card, DynCard};
+use cartomata::decode::{Decoder, DynamicDecoder};
 use cartomata::template::Template;
 use clap::Parser;
+use mlua::Lua;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Card)]
@@ -34,5 +36,34 @@ fn main() {
         .open::<DynCard>(&template, &cli.input)
         .unwrap_or_else(|e| panic!("{e}"));
     let cards = source.fetch(&cli.ids);
-    println!("{cards:?}");
+    let lua = Lua::new();
+    let decoder = DynamicDecoder::new(&lua, &template).unwrap_or_else(|e| panic!("{e}"));
+    for card_res in cards.into_iter() {
+        let card = match card_res {
+            Ok(card) => card,
+            Err(e) => {
+                eprintln!("Warning: {e}");
+                continue;
+            },
+        };
+        let id = card.id();
+        let stack = match decoder.decode(card) {
+            Ok(stack) => stack,
+            Err(e) => {
+                eprintln!("Warning: {e}");
+                continue;
+            }
+        };
+        let image_res = stack.render(&template);
+        match image_res {
+            Ok(image) => {
+                let mut path = cli.output.clone();
+                path.push(format!("{id}.png"));
+                image
+                    .save_inferred(&path)
+                    .unwrap_or_else(|e| eprintln!("Warning: {e}"));
+            }
+            Err(e) => eprintln!("Warning: {e}"),
+        }
+    }
 }

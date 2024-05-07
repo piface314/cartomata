@@ -17,7 +17,8 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Template {
-    pub template: Base,
+    #[serde(rename = "template")]
+    pub base: Base,
     pub schema: Schema,
     pub assets: Option<AssetsConfig>,
     pub artwork: Option<ArtworkConfig>,
@@ -30,6 +31,12 @@ pub struct Base {
     pub name: String,
     pub size: CardSize,
     pub background: HexRgba,
+    #[serde(default = "default_extensions")]
+    pub ext: Vec<String>
+}
+
+fn default_extensions() -> Vec<String> {
+    vec![String::from("png"), String::from("jpg"), String::from("jpeg")]
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,7 +72,7 @@ pub struct DataSourceConfig {
 
 impl Template {
     pub fn find(name: impl AsRef<str>) -> Result<Self> {
-        let mut path = Self::folder()?;
+        let mut path = Self::config_folder()?;
         path.push(name.as_ref());
         path.push("template.toml");
         Self::open(&path)
@@ -81,7 +88,7 @@ impl Template {
     }
 
     #[cfg(target_os = "windows")]
-    fn folder() -> Result<PathBuf> {
+    fn config_folder() -> Result<PathBuf> {
         let home = std::env::var("APPDATA").map_err(|_| Error::MissingVariable("APPDATA"))?;
         let mut home = PathBuf::from(home);
         home.push("cartomata");
@@ -89,12 +96,34 @@ impl Template {
     }
 
     #[cfg(target_os = "linux")]
-    fn folder() -> Result<PathBuf> {
+    fn config_folder() -> Result<PathBuf> {
         let home = std::env::var("HOME").map_err(|_| Error::MissingVariable("HOME"))?;
         let mut home = PathBuf::from(home);
         home.push(".config");
         home.push("cartomata");
         Ok(home)
+    }
+
+    pub fn folder(&self) -> Result<PathBuf> {
+        let mut path = Self::config_folder()?;
+        path.push(&self.base.name);
+        Ok(path)
+    }
+
+    pub fn assets_folder(&self) -> Result<PathBuf> {
+        let mut path = self.folder()?;
+        match self.assets.as_ref().and_then(|a| a.path.as_ref()) {
+            Some(p) => path.push(p),
+            None => path.push("assets"),
+        }
+        Ok(path)
+    }
+
+    pub fn artwork_folder(&self) -> PathBuf {
+        self.artwork
+            .as_ref()
+            .map(|cfg| cfg.path.clone())
+            .unwrap_or_else(|| PathBuf::from("artwork"))
     }
 }
 

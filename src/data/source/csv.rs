@@ -48,7 +48,7 @@ impl<'a, C: Card> DataSource<'a, C> for CsvSource {
         } else {
             let ids: HashSet<&str> = ids.iter().map(|id| id.as_str()).collect();
             iterator
-                .filter_ok(|card| card.id().map_or(false, |id| ids.contains(id.as_str())))
+                .filter_ok(|card| ids.contains(card.id().as_str()))
                 .collect()
         }
     }

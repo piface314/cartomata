@@ -1,10 +1,12 @@
 //! Contains representations for card data.
 
+pub use cartomata_derive::Card;
+
+use mlua::{IntoLua, Lua, Result as LuaResult, Value as LuaValue};
 use serde::de::{self, DeserializeOwned, Visitor};
 use serde::{Deserialize, Deserializer};
-use std::fmt;
 use std::collections::HashMap;
-pub use cartomata_derive::Card;
+use std::fmt;
 
 pub type Schema = HashMap<String, Type>;
 
@@ -82,19 +84,30 @@ impl fmt::Display for Value {
     }
 }
 
+impl<'lua> IntoLua<'lua> for Value {
+    fn into_lua(self, lua: &'lua Lua) -> LuaResult<LuaValue<'lua>> {
+        match self {
+            Value::Bool(v) => Ok(LuaValue::Boolean(v)),
+            Value::Int(v) => Ok(LuaValue::Integer(v)),
+            Value::Float(v) => Ok(LuaValue::Number(v)),
+            Value::String(v) => lua.create_string(v.as_bytes()).map(LuaValue::String),
+            Value::Nil => Ok(LuaValue::Nil),
+        }
+    }
+}
+
 pub trait Card: DeserializeOwned {
-    fn id(&self) -> Option<String>;
+    fn id(&self) -> String;
 }
 
 #[derive(Debug, Clone)]
-pub struct DynCard(HashMap<String, Value>);
+pub struct DynCard(pub HashMap<String, Value>);
 
 impl Card for DynCard {
-    fn id(&self) -> Option<String> {
-        match self.0.get("id") {
-            Some(v) => Some(v.to_string()),
-            None => None,
-        }
+    fn id(&self) -> String {
+        self.0
+            .get("id")
+            .map_or_else(|| String::new(), |id| id.to_string())
     }
 }
 
@@ -107,7 +120,10 @@ impl<'de> Visitor<'de> for DynCardVisitor {
         formatter.write_str("a map")
     }
 
-    fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> std::result::Result<Self::Value, A::Error> {
+    fn visit_map<A: de::MapAccess<'de>>(
+        self,
+        mut map: A,
+    ) -> std::result::Result<Self::Value, A::Error> {
         let mut items = HashMap::new();
         while let Some((k, v)) = map.next_entry::<String, Value>()? {
             items.insert(k, v);

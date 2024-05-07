@@ -4,5 +4,7 @@
 
 pub mod cli;
 pub mod data;
+pub mod decode;
+pub mod layer;
 pub mod error;
 pub mod template;
