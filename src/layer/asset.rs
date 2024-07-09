@@ -4,49 +4,58 @@ use crate::error::{Error, Result};
 use crate::layer::Layer;
 use crate::template::Template;
 
+use cairo::{Context, ImageSurface};
 use cartomata_derive::LuaLayer;
 use mlua::LuaSerdeExt;
-use ril::{Image, Rgba, OverlayMode, ResizeAlgorithm};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize, LuaLayer)]
 pub struct AssetLayer {
     pub path: String,
-    pub x: u32,
-    pub y: u32,
+    pub x: i64,
+    pub y: i64,
     pub w: Option<u32>,
     pub h: Option<u32>,
 }
 
 impl AssetLayer {
-    fn resized(&self, img: Image<Rgba>) -> Image<Rgba> {
-        let ref_size = img.dimensions();
+    fn target_scale(&self, img: &ImageSurface) -> (f64, f64) {
+        let (w, h) = (img.width() as f64, img.height() as f64);
         match (self.w, self.h) {
-            (Some(w), Some(h)) => img.resized(w, h, ResizeAlgorithm::Bicubic),
-            (Some(w), None) => {
-                let s = w as f64 / ref_size.0 as f64;
-                img.resized(w, (ref_size.1 as f64 * s) as u32, ResizeAlgorithm::Bicubic)
+            (Some(rw), Some(rh)) => {
+                let (rw, rh) = (rw as f64, rh as f64);
+                (rw / w, rh / h)
             }
-            (None, Some(h)) => {
-                let s = h as f64 / ref_size.1 as f64;
-                img.resized((ref_size.0 as f64 * s) as u32, h, ResizeAlgorithm::Bicubic)
+            (Some(rw), None) => {
+                let s = rw as f64 / w;
+                (s, s)
             }
-            (None, None) => img,
+            (None, Some(rh)) => {
+                let s = rh as f64 / h;
+                (s, s)
+            }
+            (None, None) => (1.0, 1.0),
         }
     }
 }
 
 impl Layer for AssetLayer {
-    fn render(&self, template: &Template, target: &mut Image<Rgba>) -> Result<()> {
+    fn render(&self, template: &Template, cr: &Context) -> Result<()> {
         let mut path = template.assets_folder()?;
         path.push(&self.path);
-        let reader = fs::File::open(path)
+        let mut reader = fs::File::open(&path)
             .map_err(|e| Error::FailedOpenImage(self.path.clone(), e.to_string()))?;
-        let img = Image::<Rgba>::from_reader_inferred(reader)
-            .map_err(|e| Error::FailedOpenImage(self.path.clone(), e.to_string()))?
-            .with_overlay_mode(OverlayMode::Merge);
-        target.paste(self.x as i64, self.y as i64, &self.resized(img));
+        let img = ImageSurface::create_from_png(&mut reader)
+            .map_err(|e| Error::FailedOpenImage(self.path.clone(), e.to_string()))?;
+        let (sx, sy) = self.target_scale(&img);
+        cr.save().map_err(|e| Error::CairoError(e.to_string()))?;
+        cr.translate(self.x as f64, self.y as f64);
+        cr.scale(sx, sy);
+        cr.set_source_surface(&img, 0.0, 0.0)
+            .map_err(|e| Error::CairoError(e.to_string()))?;
+        cr.paint().map_err(|e| Error::CairoError(e.to_string()))?;
+        cr.restore().map_err(|e| Error::CairoError(e.to_string()))?;
         Ok(())
     }
 }

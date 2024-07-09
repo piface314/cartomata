@@ -1,16 +1,13 @@
 //! Template definitions.
 
+use crate::color::Color;
 use crate::data::source::csv::CsvSourceConfig;
 use crate::data::source::sqlite::SqliteSourceConfig;
 use crate::data::source::DataSourceType;
-use crate::data::Schema;
 use crate::error::{Error, Result};
 
-use regex::Regex;
-use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use std::collections::HashMap;
-use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -19,7 +16,6 @@ use std::path::{Path, PathBuf};
 pub struct Template {
     #[serde(rename = "template")]
     pub base: Base,
-    pub schema: Schema,
     pub assets: Option<AssetsConfig>,
     pub artwork: Option<ArtworkConfig>,
     pub fonts: HashMap<String, FontConfig>,
@@ -30,13 +26,18 @@ pub struct Template {
 pub struct Base {
     pub name: String,
     pub size: CardSize,
-    pub background: HexRgba,
+    #[serde(default = "Color::default")]
+    pub background: Color,
     #[serde(default = "default_extensions")]
-    pub ext: Vec<String>
+    pub ext: Vec<String>,
 }
 
 fn default_extensions() -> Vec<String> {
-    vec![String::from("png"), String::from("jpg"), String::from("jpeg")]
+    vec![
+        String::from("png"),
+        String::from("jpg"),
+        String::from("jpeg"),
+    ]
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,8 +60,9 @@ pub struct ArtworkConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct FontConfig {
-    pub path: PathBuf,
-    pub size: f32,
+    pub path: Option<PathBuf>,
+    pub family: Option<String>,
+    pub style: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,49 +126,5 @@ impl Template {
             .as_ref()
             .map(|cfg| cfg.path.clone())
             .unwrap_or_else(|| PathBuf::from("artwork"))
-    }
-}
-
-#[derive(Debug)]
-pub struct HexRgba(pub ril::pixel::Rgba);
-
-struct HexRgbaVisitor;
-
-impl<'de> Visitor<'de> for HexRgbaVisitor {
-    type Value = HexRgba;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a string in the form #RRGGBBAA or #RRGGBB")
-    }
-
-    fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        let re =
-            Regex::new(r"^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})?$")
-                .unwrap();
-
-        let captures = re.captures(v).ok_or(E::custom(format!(
-            "string not in form #RRGGBBAA or #RRGGBB: {v}"
-        )))?;
-        let mut values = captures
-            .iter()
-            .skip(1)
-            .map(|c| c.map(|v| u8::from_str_radix(v.as_str(), 16).unwrap()));
-        let r = values.next().unwrap().unwrap_or(0);
-        let g = values.next().unwrap().unwrap_or(0);
-        let b = values.next().unwrap().unwrap_or(0);
-        let a = values.next().unwrap().unwrap_or(255);
-        Ok(HexRgba(ril::pixel::Rgba { r, g, b, a }))
-    }
-}
-
-impl<'de> Deserialize<'de> for HexRgba {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<HexRgba, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_str(HexRgbaVisitor)
     }
 }

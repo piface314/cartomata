@@ -5,6 +5,7 @@ use cartomata::template::Template;
 use clap::Parser;
 use mlua::Lua;
 use serde::Deserialize;
+use std::fs::File;
 
 #[derive(Debug, Deserialize, Card)]
 pub struct SampleCard {
@@ -44,7 +45,7 @@ fn main() {
             Err(e) => {
                 eprintln!("Warning: {e}");
                 continue;
-            },
+            }
         };
         let id = card.id();
         let stack = match decoder.decode(card) {
@@ -59,8 +60,15 @@ fn main() {
             Ok(image) => {
                 let mut path = cli.output.clone();
                 path.push(format!("{id}.png"));
+                let mut out_file = match File::create(path) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        eprintln!("Warning: {e}");
+                        continue;
+                    }
+                };
                 image
-                    .save_inferred(&path)
+                    .write_to_png(&mut out_file)
                     .unwrap_or_else(|e| eprintln!("Warning: {e}"));
             }
             Err(e) => eprintln!("Warning: {e}"),

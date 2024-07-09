@@ -8,8 +8,6 @@ use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::fmt;
 
-pub type Schema = HashMap<String, Type>;
-
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
