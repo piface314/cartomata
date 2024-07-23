@@ -220,11 +220,9 @@ impl<'f> ImgBackend<'f> {
         )
         .map_err(err)?;
 
-        let (r, g, b) = color.rgb();
-        let r = VipsImage::new_from_image1(&alpha, r * 255.0).map_err(err)?;
-        let g = VipsImage::new_from_image1(&alpha, g * 255.0).map_err(err)?;
-        let b = VipsImage::new_from_image1(&alpha, b * 255.0).map_err(err)?;
-        let stroke = ops::bandjoin(&mut [r, g, b, alpha]).map_err(err)?;
+        let (r, g, b) = color.scaled_rgb();
+        let stroke = VipsImage::new_from_image(&alpha, &[r, g, b]).map_err(err)?;
+        let stroke = ops::bandjoin(&mut [stroke, alpha]).map_err(err)?;
         let stroke = ops::copy_with_opts(
             &stroke,
             &ops::CopyOptions {

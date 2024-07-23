@@ -19,8 +19,21 @@ impl Color {
         (self.r, self.g, self.b)
     }
 
+    pub fn scaled_rgb(&self) -> (f64, f64, f64) {
+        (self.r * 255.0, self.g * 255.0, self.b * 255.0)
+    }
+
     pub fn rgba(&self) -> (f64, f64, f64, f64) {
         (self.r, self.g, self.b, self.a.unwrap_or(1.0))
+    }
+
+    pub fn scaled_rgba(&self) -> (f64, f64, f64, f64) {
+        (
+            self.r * 255.0,
+            self.g * 255.0,
+            self.b * 255.0,
+            self.a.map(|a| a * 255.0).unwrap_or(255.0),
+        )
     }
 
     pub fn has_alpha(&self) -> bool {
@@ -65,7 +78,7 @@ impl FromStr for Color {
 
 impl fmt::Display for Color {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self {r, g, b, a} = *self;
+        let Self { r, g, b, a } = *self;
         let r = (r.clamp(0.0, 1.0) * 255.0) as u8;
         let g = (g.clamp(0.0, 1.0) * 255.0) as u8;
         let b = (b.clamp(0.0, 1.0) * 255.0) as u8;
@@ -106,8 +119,9 @@ impl<'de> Deserialize<'de> for Color {
 
 impl Serialize for Color {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer {
+    where
+        S: serde::Serializer,
+    {
         serializer.serialize_str(&self.to_string())
     }
 }
