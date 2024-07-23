@@ -1,6 +1,6 @@
 //! Template definitions.
 
-use crate::color::Color;
+use crate::image::Color;
 use crate::data::source::csv::CsvSourceConfig;
 use crate::data::source::sqlite::SqliteSourceConfig;
 use crate::data::source::DataSourceType;
@@ -8,8 +8,11 @@ use crate::error::{Error, Result};
 
 use serde::Deserialize;
 use std::collections::HashMap;
+#[cfg(feature = "cli")]
 use std::fs;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "cli")]
+use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -73,6 +76,7 @@ pub struct DataSourceConfig {
 }
 
 impl Template {
+    #[cfg(feature = "cli")]
     pub fn find(name: impl AsRef<str>) -> Result<Self> {
         let mut path = Self::config_folder()?;
         path.push(name.as_ref());
@@ -80,6 +84,7 @@ impl Template {
         Self::open(&path)
     }
 
+    #[cfg(feature = "cli")]
     pub fn open(path: &impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let content = fs::read_to_string(path)

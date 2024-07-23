@@ -1,34 +1,32 @@
 //! Represents an image layer loaded from artwork folder.
 
 use crate::error::{Error, Result};
+use crate::image::{FitMode, ImgBackend, Stroke};
 use crate::layer::Layer;
 use crate::template::Template;
 
-use cairo::{Context, ImageSurface};
+use cairo::Context;
+#[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
+#[cfg(feature = "cli")]
 use mlua::LuaSerdeExt;
+#[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Deserialize, Serialize, LuaLayer)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "cli", derive(Deserialize, Serialize, LuaLayer))]
 pub struct ArtworkLayer {
     pub id: String,
-    pub x: i64,
-    pub y: i64,
-    pub w: u32,
-    pub h: u32,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub r: Option<f64>,
     pub ox: Option<f64>,
     pub oy: Option<f64>,
-    pub resize: Option<ResizeMode>,
-}
-
-#[derive(Debug, Copy, PartialEq, Eq, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ResizeMode {
-    Contain,
-    Cover,
-    Stretch,
+    pub stroke: Option<Stroke>,
+    pub fit: Option<FitMode>,
 }
 
 impl ArtworkLayer {
@@ -46,50 +44,32 @@ impl ArtworkLayer {
             .next()
     }
 
-    fn resize_mode(&self) -> ResizeMode {
-        *self.resize.as_ref().unwrap_or(&ResizeMode::Cover)
-    }
-
-    fn target_size(&self, img: &ImageSurface) -> (f64, f64, f64, f64) {
-        let (w, h) = (img.width() as f64, img.height() as f64);
-        let aspect_ratio = w / h;
-        let resize = self.resize_mode();
-        match resize {
-            ResizeMode::Contain | ResizeMode::Cover => {
-                if (aspect_ratio < 1.0) ^ (resize == ResizeMode::Contain) {
-                    let s = self.w as f64 / w;
-                    (self.w as f64, s * h, s, s)
-                } else {
-                    let s = self.h as f64 / h;
-                    (s * w, self.h as f64, s, s)
-                }
-            }
-            ResizeMode::Stretch => (self.w as f64, self.h as f64, 1.0, 1.0),
-        }
+    fn fit_mode(&self) -> FitMode {
+        self.fit.as_ref().copied().unwrap_or(FitMode::Cover)
     }
 }
 
 impl Layer for ArtworkLayer {
-    fn render(&self, template: &Template, cr: &Context) -> Result<()> {
+    fn render(&self, cr: &Context, ib: &ImgBackend, template: &Template) -> Result<()> {
         let path = self
             .find_file(template)
             .ok_or_else(|| Error::ArtworkNotFound(self.id.clone()))?;
-        let mut reader = fs::File::open(&path)
-            .map_err(|e| Error::FailedOpenImage(self.id.clone(), e.to_string()))?;
-        let img = ImageSurface::create_from_png(&mut reader)
-            .map_err(|e| Error::FailedOpenImage(self.id.clone(), e.to_string()))?;
-        let (tw, th, sx, sy) = self.target_size(&img);
-        let (x, y) = (
-            (self.w as f64 - tw) * self.ox.unwrap_or(0.5),
-            (self.h as f64 - th) * self.oy.unwrap_or(0.5),
-        );
-        cr.save().map_err(|e| Error::CairoError(e.to_string()))?;
-        cr.translate(self.x as f64 + x, self.y as f64 + y);
-        cr.scale(sx, sy);
-        cr.set_source_surface(&img, 0.0, 0.0)
-            .map_err(|e| Error::CairoError(e.to_string()))?;
-        cr.paint().map_err(|e| Error::CairoError(e.to_string()))?;
-        cr.restore().map_err(|e| Error::CairoError(e.to_string()))?;
+        let mut img = ib.load_image(path)?;
+        let (tw, th, sx, sy) = ib.target_size_to_fit(&img, self.w, self.h, self.fit_mode());
+        let (ox, oy) = (self.ox.unwrap_or(0.5), self.oy.unwrap_or(0.5));
+        let (dx, dy) = ((self.w - tw) * ox, (self.h - th) * oy);
+        ib.paint(
+            cr,
+            &mut img,
+            self.x + dx,
+            self.y + dy,
+            sx,
+            sy,
+            self.w * 0.5,
+            self.h * 0.5,
+            self.r.unwrap_or(0.0),
+            self.stroke,
+        )?;
         Ok(())
     }
 }

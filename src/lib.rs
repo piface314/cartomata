@@ -2,11 +2,12 @@
 //!
 //! A library to create templates for TCG card images and render them automatically.
 
+#[cfg(feature = "cli")]
 pub mod cli;
-pub mod color;
 pub mod data;
 pub mod decode;
 pub mod error;
+pub mod image;
 pub mod layer;
 pub mod template;
 pub mod text;

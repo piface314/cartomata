@@ -2,7 +2,7 @@
 
 use regex::Regex;
 use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
@@ -63,6 +63,21 @@ impl FromStr for Color {
     }
 }
 
+impl fmt::Display for Color {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {r, g, b, a} = *self;
+        let r = (r.clamp(0.0, 1.0) * 255.0) as u8;
+        let g = (g.clamp(0.0, 1.0) * 255.0) as u8;
+        let b = (b.clamp(0.0, 1.0) * 255.0) as u8;
+        if let Some(a) = a {
+            let a = (a.clamp(0.0, 1.0) * 255.0) as u8;
+            write!(f, "#{:02X}{:02X}{:02X}{:02X}", r, g, b, a)
+        } else {
+            write!(f, "#{:02X}{:02X}{:02X}", r, g, b)
+        }
+    }
+}
+
 struct ColorVisitor;
 
 impl<'de> Visitor<'de> for ColorVisitor {
@@ -86,5 +101,13 @@ impl<'de> Deserialize<'de> for Color {
         D: Deserializer<'de>,
     {
         deserializer.deserialize_str(ColorVisitor)
+    }
+}
+
+impl Serialize for Color {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer {
+        serializer.serialize_str(&self.to_string())
     }
 }

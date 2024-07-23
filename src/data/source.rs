@@ -10,6 +10,7 @@ use crate::data::card::Card;
 use crate::error::Result;
 use crate::template::Template;
 
+#[cfg(feature = "cli")]
 use clap::ValueEnum;
 use serde::Deserialize;
 
@@ -17,7 +18,8 @@ pub trait DataSource<'a, C: Card> {
     fn fetch(&mut self, ids: &Vec<String>) -> Vec<Result<C>>;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[cfg_attr(feature = "cli", derive(ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum DataSourceType {
     /// CSV source

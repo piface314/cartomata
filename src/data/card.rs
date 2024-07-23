@@ -1,7 +1,9 @@
 //! Contains representations for card data.
 
+#[cfg(feature = "cli")]
 pub use cartomata_derive::Card;
 
+#[cfg(feature = "cli")]
 use mlua::{IntoLua, Lua, Result as LuaResult, Value as LuaValue};
 use serde::de::{self, DeserializeOwned, Visitor};
 use serde::{Deserialize, Deserializer};
@@ -82,6 +84,7 @@ impl fmt::Display for Value {
     }
 }
 
+#[cfg(feature = "cli")]
 impl<'lua> IntoLua<'lua> for Value {
     fn into_lua(self, lua: &'lua Lua) -> LuaResult<LuaValue<'lua>> {
         match self {
