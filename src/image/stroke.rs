@@ -8,7 +8,7 @@ use serde::{de, Deserialize, Serialize};
 use std::fmt;
 
 #[derive(Debug, Copy, Clone, Default, Serialize)]
-pub struct Stroke(pub f64, pub Color);
+pub struct Stroke(pub i32, pub Color);
 
 struct StrokeVisitor;
 
@@ -27,7 +27,7 @@ impl<'de> Visitor<'de> for StrokeVisitor {
         let mut parts = re.split(v);
         let size = parts.next().ok_or_else(|| E::custom("expected a number"))?;
         let color = parts.next().ok_or_else(|| E::custom("expected a color"))?;
-        let size = size.parse::<f64>().map_err(|e| E::custom(e.to_string()))?;
+        let size = size.parse::<i32>().map_err(|e| E::custom(e.to_string()))?;
         let color = color.parse::<Color>().map_err(|e| E::custom(e.to_string()))?;
         Ok(Stroke(size, color))
     }
