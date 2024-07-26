@@ -1,13 +1,13 @@
 //! Represents an image layer loaded from artwork folder.
 
 use crate::error::{Error, Result};
-use crate::image::{FitMode, ImgBackend, Stroke};
+use crate::image::{BlendMode, FitMode, ImgBackend, Origin, Stroke};
 use crate::layer::Layer;
 use crate::template::Template;
 
-use cairo::Context;
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
+use libvips::VipsImage;
 #[cfg(feature = "cli")]
 use mlua::LuaSerdeExt;
 #[cfg(feature = "cli")]
@@ -18,15 +18,27 @@ use std::path::PathBuf;
 #[cfg_attr(feature = "cli", derive(Deserialize, Serialize, LuaLayer))]
 pub struct ArtworkLayer {
     pub id: String,
-    pub x: f64,
-    pub y: f64,
+    pub x: i32,
+    pub y: i32,
     pub w: f64,
     pub h: f64,
-    pub r: Option<f64>,
-    pub ox: Option<f64>,
-    pub oy: Option<f64>,
+    #[cfg_attr(feature = "cli", serde(default))]
+    pub r: f64,
+    #[cfg_attr(feature = "cli", serde(default = "default_origin"))]
+    pub ox: f64,
+    #[cfg_attr(feature = "cli", serde(default = "default_origin"))]
+    pub oy: f64,
+    #[cfg_attr(feature = "cli", serde(default))]
+    pub origin: Origin,
+    #[cfg_attr(feature = "cli", serde(default))]
+    pub fit: FitMode,
+    #[cfg_attr(feature = "cli", serde(default))]
+    pub blend: BlendMode,
     pub stroke: Option<Stroke>,
-    pub fit: Option<FitMode>,
+}
+
+fn default_origin() -> f64 {
+    0.5
 }
 
 impl ArtworkLayer {
@@ -43,33 +55,34 @@ impl ArtworkLayer {
             })
             .next()
     }
-
-    fn fit_mode(&self) -> FitMode {
-        self.fit.as_ref().copied().unwrap_or(FitMode::Cover)
-    }
 }
 
 impl Layer for ArtworkLayer {
-    fn render(&self, cr: &Context, ib: &ImgBackend, template: &Template) -> Result<()> {
+    fn render(&self, img: VipsImage, ib: &ImgBackend, template: &Template) -> Result<VipsImage> {
         let path = self
             .find_file(template)
             .ok_or_else(|| Error::ArtworkNotFound(self.id.clone()))?;
-        let mut img = ib.load_image(path)?;
-        let (tw, th, sx, sy) = ib.target_size_to_fit(&img, self.w, self.h, self.fit_mode());
-        let (ox, oy) = (self.ox.unwrap_or(0.5), self.oy.unwrap_or(0.5));
-        let (dx, dy) = ((self.w - tw) * ox, (self.h - th) * oy);
-        ib.paint(
-            cr,
-            &mut img,
-            self.x + dx,
-            self.y + dy,
-            sx,
-            sy,
-            self.w * 0.5,
-            self.h * 0.5,
-            self.r.unwrap_or(0.0),
-            self.stroke,
-        )?;
-        Ok(())
+        let artwork = ib.load_image(path)?;
+        let artwork = ib.scale_to_fit(&artwork, self.w, self.h, self.fit)?;
+        let artwork = if let Some(stroke) = self.stroke {
+            ib.stroke(&artwork, stroke)?
+        } else {
+            artwork
+        };
+        let (artwork, dx, dy) = ib.rotate(&artwork, self.r, self.ox, self.oy, self.origin)?;
+        let (ox, oy) = match self.origin {
+            Origin::Absolute => (self.ox, self.oy),
+            Origin::Relative => (self.w * self.ox, self.h * self.oy),
+        };
+        ib.overlay(
+            &img,
+            &artwork,
+            self.x - dx as i32,
+            self.y - dy as i32,
+            -ox,
+            -oy,
+            Origin::Absolute,
+            self.blend,
+        )
     }
 }

@@ -15,6 +15,19 @@ pub struct Color {
 }
 
 impl Color {
+    pub fn from_rgb(r: f64, g: f64, b: f64) -> Self {
+        Self { r, g, b, a: None }
+    }
+
+    pub fn from_rgba(r: f64, g: f64, b: f64, a: f64) -> Self {
+        Self {
+            r,
+            g,
+            b,
+            a: Some(a),
+        }
+    }
+
     pub fn rgb(&self) -> (f64, f64, f64) {
         (self.r, self.g, self.b)
     }

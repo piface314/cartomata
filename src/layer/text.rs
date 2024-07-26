@@ -1,16 +1,20 @@
 //! Represents a layer to render arbitrary text, including single line labels
-//! or multiline text areas. 
+//! or multiline text areas.
 
-use crate::error::Result;
 use crate::layer::Layer;
 use crate::template::Template;
+use crate::{error::Result, image::ImgBackend};
 
+#[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
+use libvips::VipsImage;
+#[cfg(feature = "cli")]
 use mlua::LuaSerdeExt;
-use cairo::{Context, ImageSurface};
-use serde::{Serialize, Deserialize};
+#[cfg(feature = "cli")]
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, LuaLayer)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "cli", derive(Serialize, Deserialize, LuaLayer))]
 pub struct TextLayer {
     pub text: String,
     pub x: i64,
@@ -19,13 +23,10 @@ pub struct TextLayer {
     pub h: Option<u32>,
 }
 
-impl TextLayer {
-    
-}
+impl TextLayer {}
 
 impl Layer for TextLayer {
-    fn render(&self, _template: &Template, _cr: &Context) -> Result<()> {
-        
-        Ok(())
+    fn render(&self, img: VipsImage, _ib: &ImgBackend, _template: &Template) -> Result<VipsImage> {
+        Ok(img)
     }
 }

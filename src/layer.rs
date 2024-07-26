@@ -12,26 +12,26 @@ use crate::error::Result;
 use crate::image::ImgBackend;
 use crate::template::Template;
 
-use cairo::{Context, ImageSurface};
+use libvips::VipsImage;
 use core::fmt::Debug;
 
 pub trait Layer: Debug {
-    fn render(&self, cr: &Context, ib: &ImgBackend, template: &Template) -> Result<()>;
+    fn render(&self, img: VipsImage, ib: &ImgBackend, template: &Template) -> Result<VipsImage>;
 }
 
 #[derive(Debug)]
 pub struct LayerStack<'a>(pub Vec<Box<dyn Layer + 'a>>);
 
 impl<'a> LayerStack<'a> {
-    pub fn render(self, template: &Template, ib: &ImgBackend) -> Result<ImageSurface> {
+    pub fn render(self, template: &Template, ib: &ImgBackend) -> Result<VipsImage> {
         let bg = template.base.background;
         let size = &template.base.size;
 
-        let (img, cr) = ib.new_canvas(&bg, size.width, size.height)?;
+        let mut img = ib.new_canvas(&bg, size.width, size.height)?;
 
         let LayerStack(layers) = self;
         for layer in layers.into_iter() {
-            layer.render(&cr, ib, template)?;
+            img = layer.render(img, ib, template)?;
         }
         Ok(img)
     }
