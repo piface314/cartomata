@@ -1,6 +1,6 @@
 //! Text attribute values and conversions.
 
-use crate::color::Color;
+use crate::image::Color;
 
 use regex::Regex;
 use std::str::FromStr;
@@ -37,7 +37,7 @@ macro_rules! attr {
 }
 
 attr! {
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub enum SpanAttr {
         "font" => Font(String),
         "features" => Features(String),
@@ -69,9 +69,8 @@ attr! {
     }
 }
 
-
 attr! {
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub enum ImgAttr {
         "src" => Src(String),
         "width" => Width(u32),
@@ -80,9 +79,8 @@ attr! {
     }
 }
 
-
 attr! {
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub enum IconAttr {
         "src" => Src(String),
         "width" => Width(u32),
@@ -106,7 +104,7 @@ fn parse_abs_or_pt(s: &str) -> Option<i32> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Size(pub i32);
 
 impl FromStr for Size {
@@ -118,7 +116,7 @@ impl FromStr for Size {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Scale(pub f64);
 
 impl FromStr for Scale {
@@ -145,7 +143,7 @@ impl FromStr for Scale {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Overline(pub pango::Overline);
 
 impl FromStr for Overline {
@@ -159,7 +157,7 @@ impl FromStr for Overline {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Underline(pub pango::Underline);
 
 impl FromStr for Underline {
@@ -176,7 +174,7 @@ impl FromStr for Underline {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BaselineShift(pub pango::BaselineShift);
 
 impl FromStr for BaselineShift {
@@ -197,7 +195,7 @@ impl FromStr for BaselineShift {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Gravity(pub pango::Gravity);
 
 impl FromStr for Gravity {
@@ -214,7 +212,7 @@ impl FromStr for Gravity {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GravityHint(pub pango::GravityHint);
 
 impl FromStr for GravityHint {
@@ -229,7 +227,7 @@ impl FromStr for GravityHint {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ShowFlags(pub pango::ShowFlags);
 
 impl FromStr for ShowFlags {
@@ -250,7 +248,7 @@ impl FromStr for ShowFlags {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TextTransform(pub pango::TextTransform);
 
 impl FromStr for TextTransform {
@@ -266,18 +264,15 @@ impl FromStr for TextTransform {
     }
 }
 
-#[derive(Debug)]
-pub enum Segment {
-    Word(pango::AttrInt),
-    Sentence(pango::AttrInt),
-}
+#[derive(Debug, Clone)]
+pub struct Segment(pub pango::AttrInt);
 
 impl FromStr for Segment {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "word" => Ok(Self::Word(pango::AttrInt::new_word())),
-            "sentence" => Ok(Self::Sentence(pango::AttrInt::new_sentence())),
+            "word" => Ok(Self(pango::AttrInt::new_word())),
+            "sentence" => Ok(Self(pango::AttrInt::new_sentence())),
             _ => Err("expected one of `word`, `sentence`"),
         }
     }

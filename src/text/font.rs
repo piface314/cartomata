@@ -8,28 +8,29 @@ use fontconfig_sys::fontconfig as sys;
 use std::path::Path;
 use std::{collections::HashMap, ffi::CString};
 
-
-pub struct FontManager<'k, 'fc> {
-    fc: &'fc Fontconfig,
-    loaded: HashMap<&'k str, Pattern<'fc>>,
+pub struct FontManager<'f> {
+    fc: &'f Fontconfig,
+    loaded: HashMap<&'f str, Pattern<'f>>,
 }
 
-impl<'k, 'fc> FontManager<'k, 'fc> {
-    pub fn new(fc: &'fc Fontconfig) -> Self {
+impl<'f> FontManager<'f> {
+    pub fn new(fc: &'f Fontconfig) -> Self {
         Self {
             fc,
             loaded: HashMap::new(),
         }
     }
 
-    pub fn load_from_template(&mut self, template: &'k Template) -> Result<()> {
+    pub fn load_from_template(&mut self, template: &'f Template) -> Result<()> {
         for (key, cfg) in template.fonts.iter() {
-            if let Some(path) = &cfg.path {
+            if let Some(fp) = &cfg.path {
+                let mut path = template.folder()?;
+                path.push(fp);
                 self.load_font_from_file(key, path)?;
             } else if let Some(family) = &cfg.family {
                 self.load_font_from_name(key, &family, cfg.style.as_deref())?;
             } else {
-                return Err(Error::FontUndefined(key.to_string()))
+                return Err(Error::FontUndefined(key.to_string()));
             };
         }
         Ok(())
@@ -37,10 +38,10 @@ impl<'k, 'fc> FontManager<'k, 'fc> {
 
     pub fn load_font_from_name(
         &mut self,
-        key: &'k str,
+        key: &'f str,
         family: &str,
         style: Option<&str>,
-    ) -> Result<&Pattern<'fc>> {
+    ) -> Result<&Pattern<'f>> {
         let mut pat = Pattern::new(self.fc);
         let c_family =
             CString::new(family).map_err(|_| Error::InvalidCString(family.to_string()))?;
@@ -57,13 +58,15 @@ impl<'k, 'fc> FontManager<'k, 'fc> {
         Ok(self.loaded.get(key).unwrap())
     }
 
-    pub fn load_font_from_file(&mut self, key: &'k str, fp: impl AsRef<Path>) -> Result<&Pattern<'fc>> {
+    pub fn load_font_from_file(
+        &mut self,
+        key: &'f str,
+        fp: impl AsRef<Path>,
+    ) -> Result<&Pattern<'f>> {
         let fp = fp.as_ref();
-        let err = || Error::InvalidCString(fp.to_string_lossy().to_string());
-        let c_fp = CString::new(fp.to_string_lossy().to_string()).map_err(|_| err())?;
-        let pat = self
-            .load_pattern_from_file(&c_fp)
-            .ok_or_else(err)?;
+        let c_fp = CString::new(fp.to_string_lossy().to_string())
+            .map_err(|_| Error::InvalidCString(fp.to_string_lossy().to_string()))?;
+        let pat = self.load_pattern_from_file(&c_fp).ok_or_else(|| Error::LoadFontError(key.into()))?;
 
         let status = unsafe {
             fontconfig_sys::fontconfig::FcConfigAppFontAddFile(
@@ -72,14 +75,14 @@ impl<'k, 'fc> FontManager<'k, 'fc> {
             )
         };
         if status == 0 {
-            Err(err())
+            Err(Error::LoadFontError(key.into()))
         } else {
             self.loaded.insert(key, pat);
             Ok(self.loaded.get(key).unwrap())
         }
     }
 
-    fn load_pattern_from_file(&self, c_fp: &CString) -> Option<Pattern<'fc>> {
+    fn load_pattern_from_file(&self, c_fp: &CString) -> Option<Pattern<'f>> {
         unsafe {
             let set = sys::FcFontSetCreate();
             let status = sys::FcFileScan(

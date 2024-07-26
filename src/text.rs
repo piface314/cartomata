@@ -291,7 +291,7 @@ impl<'src> Parser<'src> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Markup {
     Root(Vec<Markup>),
     Text(String),
