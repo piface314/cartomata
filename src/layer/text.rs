@@ -26,7 +26,7 @@ pub struct TextLayer {
 impl TextLayer {}
 
 impl Layer for TextLayer {
-    fn render(&self, img: VipsImage, _ib: &ImgBackend, _template: &Template) -> Result<VipsImage> {
+    fn render(&self, img: VipsImage, _ib: &mut ImgBackend, _template: &Template) -> Result<VipsImage> {
         Ok(img)
     }
 }

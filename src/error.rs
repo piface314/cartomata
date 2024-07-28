@@ -30,6 +30,7 @@ pub enum Error {
     LoadFontError(String),
     FontUndefined(String),
     ImageConversionError(&'static str, &'static str),
+    ImageCacheMiss(String),
 }
 
 impl std::error::Error for Error {}
@@ -65,7 +66,8 @@ impl std::fmt::Display for Error {
                 f,
                 "font undefined: {e} (at least `path` or `family` must be specified)"
             ),
-            Error::ImageConversionError(from, to) => write!(f, "Failed to convert image from {from} to {to}."),
+            Error::ImageConversionError(from, to) => write!(f, "Failed to convert image from {from} to {to}"),
+            Error::ImageCacheMiss(e) => write!(f, "{e} not in image cache"),
         }
     }
 }

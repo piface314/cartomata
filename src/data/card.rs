@@ -5,11 +5,21 @@ pub use cartomata_derive::Card;
 
 #[cfg(feature = "cli")]
 use mlua::{IntoLua, Lua, Result as LuaResult, Value as LuaValue};
-use serde::de::{self, DeserializeOwned, Visitor};
+use serde::de::DeserializeOwned;
+#[cfg(feature = "cli")]
+use serde::de::{self, Visitor};
+#[cfg(feature = "cli")]
 use serde::{Deserialize, Deserializer};
+#[cfg(feature = "cli")]
 use std::collections::HashMap;
+#[cfg(feature = "cli")]
 use std::fmt;
 
+pub trait Card: DeserializeOwned {
+    fn id(&self) -> String;
+}
+
+#[cfg(feature = "cli")]
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
@@ -19,17 +29,10 @@ pub enum Value {
     Nil,
 }
 
-#[derive(Debug, Copy, Clone, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Type {
-    Int,
-    Float,
-    String,
-    Bool,
-}
-
+#[cfg(feature = "cli")]
 struct ValueVisitor;
 
+#[cfg(feature = "cli")]
 impl<'de> Visitor<'de> for ValueVisitor {
     type Value = Value;
 
@@ -66,12 +69,14 @@ impl<'de> Visitor<'de> for ValueVisitor {
     }
 }
 
+#[cfg(feature = "cli")]
 impl<'de> Deserialize<'de> for Value {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Value, D::Error> {
         deserializer.deserialize_any(ValueVisitor)
     }
 }
 
+#[cfg(feature = "cli")]
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -97,23 +102,23 @@ impl<'lua> IntoLua<'lua> for Value {
     }
 }
 
-pub trait Card: DeserializeOwned {
-    fn id(&self) -> String;
-}
-
+#[cfg(feature = "cli")]
 #[derive(Debug, Clone)]
 pub struct DynCard(pub HashMap<String, Value>);
 
+#[cfg(feature = "cli")]
 impl Card for DynCard {
     fn id(&self) -> String {
         self.0
             .get("id")
-            .map_or_else(|| String::new(), |id| id.to_string())
+            .map_or_else(String::new, |id| id.to_string())
     }
 }
 
+#[cfg(feature = "cli")]
 struct DynCardVisitor;
 
+#[cfg(feature = "cli")]
 impl<'de> Visitor<'de> for DynCardVisitor {
     type Value = DynCard;
 
@@ -133,6 +138,7 @@ impl<'de> Visitor<'de> for DynCardVisitor {
     }
 }
 
+#[cfg(feature = "cli")]
 impl<'de> Deserialize<'de> for DynCard {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where

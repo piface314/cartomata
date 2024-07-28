@@ -16,14 +16,14 @@ use libvips::VipsImage;
 use core::fmt::Debug;
 
 pub trait Layer: Debug {
-    fn render(&self, img: VipsImage, ib: &ImgBackend, template: &Template) -> Result<VipsImage>;
+    fn render(&self, img: VipsImage, ib: &mut ImgBackend, template: &Template) -> Result<VipsImage>;
 }
 
 #[derive(Debug)]
 pub struct LayerStack<'a>(pub Vec<Box<dyn Layer + 'a>>);
 
 impl<'a> LayerStack<'a> {
-    pub fn render(self, template: &Template, ib: &ImgBackend) -> Result<VipsImage> {
+    pub fn render(self, template: &Template, ib: &mut ImgBackend) -> Result<VipsImage> {
         let bg = template.base.background;
         let size = &template.base.size;
 

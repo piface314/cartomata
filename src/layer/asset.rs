@@ -37,10 +37,10 @@ pub struct AssetLayer {
 }
 
 impl Layer for AssetLayer {
-    fn render(&self, img: VipsImage, ib: &ImgBackend, template: &Template) -> Result<VipsImage> {
-        let mut path = template.assets_folder()?;
-        path.push(&self.path);
-        let asset = ib.load_image(path)?;
+    fn render(&self, img: VipsImage, ib: &mut ImgBackend, template: &Template) -> Result<VipsImage> {
+        let path = template.asset_path(&self.path)?;
+        ib.cache(&path)?;
+        let asset = ib.get_cached(&path)?;
         let asset = ib.scale_to(&asset, self.w, self.h)?;
         let asset = if let Some(stroke) = self.stroke {
             ib.stroke(&asset, stroke)?

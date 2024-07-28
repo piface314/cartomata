@@ -4,22 +4,24 @@ mod blend;
 mod color;
 mod stroke;
 
-use std::path::Path;
+pub use crate::image::blend::BlendMode;
+pub use crate::image::color::Color;
+pub use crate::image::stroke::Stroke;
 
+use crate::error::{Error, Result};
+// use crate::template::Template;
+use crate::text::FontManager;
 use cairo::{Format, ImageSurface};
 use libvips::{ops, VipsApp, VipsImage};
 #[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
-
-use crate::error::{Error, Result};
-pub use crate::image::blend::BlendMode;
-pub use crate::image::color::Color;
-pub use crate::image::stroke::Stroke;
-use crate::text::FontManager;
+use std::collections::HashMap;
+use std::path::Path;
 
 pub struct ImgBackend<'f> {
     vips_app: VipsApp,
     font_manager: FontManager<'f>,
+    cache: HashMap<String, VipsImage>,
 }
 
 #[derive(Debug, Copy, PartialEq, Eq, Clone)]
@@ -56,6 +58,7 @@ impl<'f> ImgBackend<'f> {
         Self {
             vips_app,
             font_manager,
+            cache: HashMap::new(),
         }
     }
 
@@ -128,10 +131,23 @@ impl<'f> ImgBackend<'f> {
         .map_err(|_| Error::ImageConversionError("cairo", "vips"))
     }
 
-    pub fn load_image(&self, fp: impl AsRef<Path>) -> Result<VipsImage> {
+    pub fn open(&self, fp: impl AsRef<Path>) -> Result<VipsImage> {
         let fp = fp.as_ref();
         let img = VipsImage::new_from_file(&fp.to_string_lossy()).map_err(|e| self.err(e))?;
         self.reinterpret(&img)
+    }
+
+    pub fn cache(&mut self, key: impl AsRef<Path>) -> Result<()> {
+        let key_str = key.as_ref().to_string_lossy();
+        if !self.cache.contains_key(key_str.as_ref()) {
+            self.cache.insert(key_str.to_string(), self.open(key)?);
+        }
+        Ok(())
+    }
+
+    pub fn get_cached(&self, key: impl AsRef<Path>) -> Result<&VipsImage> {
+        let key_str = key.as_ref().to_string_lossy();
+        self.cache.get(key_str.as_ref()).ok_or_else(|| Error::ImageCacheMiss(key_str.to_string()))
     }
 
     pub fn scale(&self, img: &VipsImage, sx: f64, sy: f64) -> Result<VipsImage> {

@@ -1,14 +1,13 @@
 use cartomata::cli::Cli;
 use cartomata::data::{Card, DynCard};
-use cartomata::decode::Decoder;
 use cartomata::decode::dynamic::DynamicDecoder;
+use cartomata::decode::Decoder;
 use cartomata::image::ImgBackend;
 use cartomata::template::Template;
 use cartomata::text::FontManager;
 use clap::Parser;
 use mlua::Lua;
 use serde::Deserialize;
-use std::fs::File;
 
 #[derive(Debug, Deserialize, Card)]
 pub struct SampleCard {
@@ -36,8 +35,9 @@ fn main() {
 
     let fc = fontconfig::Fontconfig::new().unwrap();
     let mut fm = FontManager::new(&fc);
-    fm.load_from_template(&template).unwrap_or_else(|e| panic!("{e}"));
-    let ib = ImgBackend::new(fm);
+    fm.load_from_template(&template)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut ib = ImgBackend::new(vips, fm);
 
     let source_type = cli
         .source
@@ -65,27 +65,16 @@ fn main() {
                 continue;
             }
         };
-        let image_res = stack.render(&template, &ib);
+        let image_res = stack.render(&template, &mut ib);
         match image_res {
             Ok(image) => {
                 let mut path = cli.output.clone();
                 path.push(format!("{id}.png"));
-                let mut out_file = match File::create(path) {
-                    Ok(file) => file,
-                    Err(e) => {
-                        eprintln!("Warning: {e}");
-                        continue;
-                    }
-                };
                 image
-                    .write_to_png(&mut out_file)
+                    .image_write_to_file(&path.to_string_lossy())
                     .unwrap_or_else(|e| eprintln!("Warning: {e}"));
             }
-            Err(e) => {
-                eprintln!("Warning: {e}");
-                vips.error_buffer().and_then(|e| Ok(println!("{e}"))).unwrap_or_else(|_| {});
-            },
+            Err(e) => eprintln!("Warning: {e}"),
         }
     }
 }
-

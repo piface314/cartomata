@@ -1,10 +1,10 @@
 //! Template definitions.
 
-use crate::image::Color;
 use crate::data::source::csv::CsvSourceConfig;
 use crate::data::source::sqlite::SqliteSourceConfig;
 use crate::data::source::DataSourceType;
 use crate::error::{Error, Result};
+use crate::image::Color;
 
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -123,6 +123,12 @@ impl Template {
             Some(p) => path.push(p),
             None => path.push("assets"),
         }
+        Ok(path)
+    }
+
+    pub fn asset_path(&self, fp: impl AsRef<Path>) -> Result<PathBuf> {
+        let mut path = self.assets_folder()?;
+        path.push(fp.as_ref());
         Ok(path)
     }
 

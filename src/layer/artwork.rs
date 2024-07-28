@@ -58,11 +58,11 @@ impl ArtworkLayer {
 }
 
 impl Layer for ArtworkLayer {
-    fn render(&self, img: VipsImage, ib: &ImgBackend, template: &Template) -> Result<VipsImage> {
+    fn render(&self, img: VipsImage, ib: &mut ImgBackend, template: &Template) -> Result<VipsImage> {
         let path = self
             .find_file(template)
             .ok_or_else(|| Error::ArtworkNotFound(self.id.clone()))?;
-        let artwork = ib.load_image(path)?;
+        let artwork = ib.open(path)?;
         let artwork = ib.scale_to_fit(&artwork, self.w, self.h, self.fit)?;
         let artwork = if let Some(stroke) = self.stroke {
             ib.stroke(&artwork, stroke)?
