@@ -7,20 +7,22 @@ mod stroke;
 pub use crate::image::blend::BlendMode;
 pub use crate::image::color::Color;
 pub use crate::image::stroke::Stroke;
+use crate::text::attr::{Attr, IndexedAttr};
+
+use pango::prelude::FontMapExt;
 
 use crate::error::{Error, Result};
 // use crate::template::Template;
-use crate::text::FontManager;
-use cairo::{Format, ImageSurface};
+use crate::text::{FontManager, Markup};
+use cairo::ImageSurface;
 use libvips::{ops, VipsApp, VipsImage};
 #[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-pub struct ImgBackend<'f> {
+pub struct ImgBackend {
     vips_app: VipsApp,
-    font_manager: FontManager<'f>,
     cache: HashMap<String, VipsImage>,
 }
 
@@ -53,11 +55,10 @@ impl Default for Origin {
     }
 }
 
-impl<'f> ImgBackend<'f> {
-    pub fn new(vips_app: VipsApp, font_manager: FontManager<'f>) -> Self {
+impl ImgBackend {
+    pub fn new(vips_app: VipsApp) -> Self {
         Self {
             vips_app,
-            font_manager,
             cache: HashMap::new(),
         }
     }
@@ -70,6 +71,7 @@ impl<'f> ImgBackend<'f> {
     }
 
     fn reinterpret(&self, img: &VipsImage) -> Result<VipsImage> {
+        let img = ops::cast(&img, ops::BandFormat::Uchar).map_err(|e| self.err(e))?;
         let img = ops::copy_with_opts(
             &img,
             &ops::CopyOptions {
@@ -98,37 +100,13 @@ impl<'f> ImgBackend<'f> {
         self.reinterpret(&img)
     }
 
-    fn vips_to_cairo(&self, img: &VipsImage) -> Result<ImageSurface> {
-        let data = img.image_write_to_memory();
-        let stride = (data.len() / img.get_height() as usize) as i32;
-        ImageSurface::create_for_data(
-            data,
-            Format::ARgb32,
-            img.get_width(),
-            img.get_height(),
-            stride,
-        )
-        .map_err(|_| Error::ImageConversionError("vips", "cairo"))
-    }
-
-    fn cairo_to_vips(&self, img: &mut ImageSurface) -> Result<VipsImage> {
-        let (w, h) = (img.width(), img.height());
-        let data = img
-            .data()
+    pub fn cairo_to_vips(&self, img: ImageSurface) -> Result<VipsImage> {
+        let mut buffer = Vec::new();
+        img.write_to_png(&mut buffer)
             .map_err(|_| Error::ImageConversionError("cairo", "vips"))?;
-        let img = VipsImage::new_from_memory(&data, w, h, 4, ops::BandFormat::Uchar)
-            .map_err(|_| Error::ImageConversionError("cairo", "vips"))?;
-        ops::copy_with_opts(
-            &img,
-            &ops::CopyOptions {
-                interpretation: ops::Interpretation::Srgb,
-                width: img.get_width(),
-                height: img.get_height(),
-                bands: img.get_bands(),
-                ..Default::default()
-            },
-        )
-        .map_err(|_| Error::ImageConversionError("cairo", "vips"))
+        let mut img = VipsImage::new_from_buffer(&buffer, "").map_err(|e| self.err(e))?;
+        img.image_wio_input().map_err(|e| self.err(e))?;
+        self.reinterpret(&img)
     }
 
     pub fn open(&self, fp: impl AsRef<Path>) -> Result<VipsImage> {
@@ -147,7 +125,34 @@ impl<'f> ImgBackend<'f> {
 
     pub fn get_cached(&self, key: impl AsRef<Path>) -> Result<&VipsImage> {
         let key_str = key.as_ref().to_string_lossy();
-        self.cache.get(key_str.as_ref()).ok_or_else(|| Error::ImageCacheMiss(key_str.to_string()))
+        self.cache
+            .get(key_str.as_ref())
+            .ok_or_else(|| Error::ImageCacheMiss(key_str.to_string()))
+    }
+
+    pub fn set_color(&self, img: &VipsImage, color: Color) -> Result<VipsImage> {
+        let (r, g, b) = color.scaled_rgb();
+        let rgb = VipsImage::new_from_image(img, &[r, g, b]).map_err(|e| self.err(e))?;
+        let current_a = ops::extract_band(img, 3).map_err(|e| self.err(e))?;
+        let a = match color.a {
+            Some(alpha) => {
+                let a = VipsImage::new_from_image1(img, alpha).map_err(|e| self.err(e))?;
+                ops::multiply(&current_a, &a).map_err(|e| self.err(e))?
+            }
+            None => current_a,
+        };
+        let img = ops::bandjoin(&mut [rgb, a]).map_err(|e| self.err(e))?;
+        self.reinterpret(&img)
+    }
+
+    pub fn set_opacity(&self, img: &VipsImage, alpha: f64) -> Result<VipsImage> {
+        let current = ops::extract_band(img, 3).map_err(|e| self.err(e))?;
+        let a = VipsImage::new_from_image1(&img, alpha).map_err(|e| self.err(e))?;
+        let a = ops::multiply(&current, &a).map_err(|e| self.err(e))?;
+        let rgb = ops::extract_band_with_opts(img, 0, &ops::ExtractBandOptions { n: 3 })
+            .map_err(|e| self.err(e))?;
+        let img = ops::bandjoin(&mut [rgb, a]).map_err(|e| self.err(e))?;
+        self.reinterpret(&img)
     }
 
     pub fn scale(&self, img: &VipsImage, sx: f64, sy: f64) -> Result<VipsImage> {
@@ -249,6 +254,7 @@ impl<'f> ImgBackend<'f> {
             .map_err(|e| self.err(e))?;
 
         let alpha = ops::extract_band(&img, 3).map_err(|e| self.err(e))?;
+        // TODO: "binarize" alpha before blur for better results
         let alpha =
             ops::morph(&alpha, &mask, ops::OperationMorphology::Dilate).map_err(|e| self.err(e))?;
         let alpha = ops::gaussblur_with_opts(
@@ -288,5 +294,105 @@ impl<'f> ImgBackend<'f> {
         };
         let src = ops::embed(&src, x - ox, y - oy, bw, bh).map_err(|e| self.err(e))?;
         ops::composite_2(&base, &src, mode.into()).map_err(|e| self.err(e))
+    }
+
+    pub fn print<'f>(
+        &self,
+        fm: &'f FontManager<'f>,
+        markup: Markup<'f>,
+        max_w: Option<i32>,
+        font: &'f str,
+        size: f64,
+        color: Color,
+    ) -> Result<VipsImage> {
+        let err = |e: cairo::Error| Error::CairoError(e.to_string());
+        let (attrs, text) = markup.parsed(fm, font, pango::SCALE * size as i32, color);
+        let ctx = pangocairo::FontMap::new().create_context();
+        let mut opt = cairo::FontOptions::new().map_err(err)?;
+        opt.set_antialias(cairo::Antialias::Good);
+        pangocairo::functions::context_set_font_options(&ctx, Some(&opt));
+        pangocairo::functions::context_set_resolution(&ctx, 300.0);
+        let (attr_list, images) = self.convert_attrs(&attrs, &ctx);
+        let layout = pango::Layout::new(&ctx);
+        if let Some(w) = max_w {
+            layout.set_width(w);
+        }
+        layout.set_font_description(fm.get_desc(font, size).as_ref());
+        layout.set_attributes(Some(&attr_list));
+        layout.set_text(&text);
+
+        let (_ink_rect, log_rect) = layout.extents();
+        let base = {
+            let base = cairo::ImageSurface::create(
+                cairo::Format::ARgb32,
+                log_rect.width() / pango::SCALE,
+                log_rect.height() / pango::SCALE,
+            )
+            .map_err(err)?;
+            let cr = cairo::Context::new(&base).map_err(err)?;
+            let (r, g, b, a) = color.rgba();
+            cr.set_source_rgba(r, g, b, a);
+            pangocairo::functions::show_layout(&cr, &layout);
+            base
+        };
+        let mut base = self.cairo_to_vips(base)?;
+
+        if let Some(atl) = attr_list.filter(|att| att.type_() == pango::AttrType::Shape) {
+            for (att, img) in atl.attributes().iter().zip(images) {
+                if let Some(img) = img {
+                    let i = att.start_index();
+                    let rect = layout.index_to_pos(i as i32);
+                    let (x, y) = (rect.x() / pango::SCALE, rect.y() / pango::SCALE);
+                    base = self.overlay(
+                        &base,
+                        &img,
+                        x,
+                        y,
+                        0.0,
+                        0.0,
+                        Origin::Absolute,
+                        BlendMode::Over,
+                    )?;
+                }
+            }
+        }
+        Ok(base)
+    }
+
+    fn convert_attrs(
+        &self,
+        attrs: &Vec<IndexedAttr>,
+        ctx: &pango::Context,
+    ) -> (pango::AttrList, Vec<Option<VipsImage>>) {
+        let mut attr_list = pango::AttrList::new();
+        let mut images = Vec::new();
+        for attr in attrs.iter() {
+            match &attr.value {
+                Attr::Span(a) => {
+                    a.push_pango_attrs(&mut attr_list, attr.start_index, attr.end_index)
+                }
+                Attr::Img(a) => {
+                    let img = a.push_pango_attrs(
+                        self,
+                        &mut attr_list,
+                        ctx,
+                        attr.start_index,
+                        attr.end_index,
+                    );
+                    images.push(img);
+                }
+                Attr::Icon(a) => {
+                    let img = a.push_pango_attrs(
+                        self,
+                        &mut attr_list,
+                        ctx,
+                        attr.start_index,
+                        attr.end_index,
+                    );
+                    images.push(img);
+                }
+            }
+        }
+        (attr_list, images)
     }
 }

@@ -9,10 +9,29 @@ use itertools::Itertools;
 use serde::Deserialize;
 use std::collections::HashSet;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Copy, Clone)]
 pub struct CsvSourceConfig {
-    pub delimiter: Option<char>,
-    pub header: Option<bool>,
+    #[serde(default = "default_delimiter")]
+    pub delimiter: char,
+    #[serde(default = "default_header")]
+    pub header: bool,
+}
+
+fn default_delimiter() -> char {
+    ','
+}
+
+fn default_header() -> bool {
+    true
+}
+
+impl Default for CsvSourceConfig {
+    fn default() -> Self {
+        CsvSourceConfig {
+            delimiter: default_delimiter(),
+            header: default_header(),
+        }
+    }
 }
 
 pub struct CsvSource {
@@ -24,12 +43,11 @@ impl<'a> CsvSource {
         let config = template
             .source
             .csv
-            .as_ref()
-            .ok_or_else(|| Error::MissingSourceConfig("csv"))?;
+            .unwrap_or_else(|| CsvSourceConfig::default());
         let path = path.as_ref();
         let reader = csv::ReaderBuilder::new()
-            .delimiter(config.delimiter.map(|c| c as u8).unwrap_or(b','))
-            .has_headers(config.header.unwrap_or(true))
+            .delimiter(config.delimiter as u8)
+            .has_headers(config.header)
             .from_path(path)
             .map_err(|e| Error::FailedOpenDataSource(path.to_string(), e.to_string()))?;
         Ok(Self { reader })

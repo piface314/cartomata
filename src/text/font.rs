@@ -21,6 +21,20 @@ impl<'f> FontManager<'f> {
         }
     }
 
+    pub fn get(&'f self, key: &str) -> Option<&'f Pattern<'f>> {
+        self.loaded.get(key)
+    }
+
+    pub fn get_desc(&self, key: &str, size: f64) -> Option<pango::FontDescription> {
+        self.loaded.get(key).map(|pat| {
+            pango::FontDescription::from_string(&format!("{} {size:.2}", pat.name().unwrap_or("")))
+        })
+    }
+
+    pub fn check(&'f self, key: &str) -> Option<(&'f str, &'f Pattern<'f>)> {
+        self.loaded.get_key_value(key).map(|(k, v)| (*k, v))
+    }
+
     pub fn load_from_template(&mut self, template: &'f Template) -> Result<()> {
         for (key, cfg) in template.fonts.iter() {
             if let Some(fp) = &cfg.path {
@@ -66,7 +80,9 @@ impl<'f> FontManager<'f> {
         let fp = fp.as_ref();
         let c_fp = CString::new(fp.to_string_lossy().to_string())
             .map_err(|_| Error::InvalidCString(fp.to_string_lossy().to_string()))?;
-        let pat = self.load_pattern_from_file(&c_fp).ok_or_else(|| Error::LoadFontError(key.into()))?;
+        let pat = self
+            .load_pattern_from_file(&c_fp)
+            .ok_or_else(|| Error::LoadFontError(key.into()))?;
 
         let status = unsafe {
             fontconfig_sys::fontconfig::FcConfigAppFontAddFile(

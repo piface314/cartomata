@@ -31,6 +31,7 @@ pub enum Error {
     FontUndefined(String),
     ImageConversionError(&'static str, &'static str),
     ImageCacheMiss(String),
+    FontCacheMiss(String),
 }
 
 impl std::error::Error for Error {}
@@ -68,6 +69,7 @@ impl std::fmt::Display for Error {
             ),
             Error::ImageConversionError(from, to) => write!(f, "Failed to convert image from {from} to {to}"),
             Error::ImageCacheMiss(e) => write!(f, "{e} not in image cache"),
+            Error::FontCacheMiss(e) => write!(f, "font not found: {e}"),
         }
     }
 }

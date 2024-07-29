@@ -61,7 +61,11 @@ impl Color {
         )
     }
 
-    fn pango_channel(x: f64) -> u16 {
+    pub fn pango_alpha(&self) -> Option<u16> {
+        self.a.map(Self::pango_channel)
+    }
+
+    pub fn pango_channel(x: f64) -> u16 {
         let c = (x * 255.0) as u16;
         c | c << 8
     }
