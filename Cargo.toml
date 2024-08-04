@@ -47,7 +47,7 @@ yeslogic-fontconfig-sys = { version = "^2.11.1" }
 
 [features]
 default = ["cli"]
-cli = ["cartomata_derive", "clap", "mlua", "toml"]
+cli = ["dep:cartomata_derive", "dep:clap", "dep:mlua", "dep:toml"]
 
 [[example]]
 name = "cli"
