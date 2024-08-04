@@ -4,18 +4,16 @@ mod blend;
 mod color;
 mod stroke;
 
-pub use crate::image::blend::BlendMode;
+use crate::error::{Error, Result};
 pub use crate::image::color::Color;
 pub use crate::image::stroke::Stroke;
-use crate::text::attr::{Attr, IndexedAttr};
+pub use crate::image::blend::BlendMode;
+use crate::text::attr::{ITagAttr, TagAttr, LayoutAttr};
+use crate::text::{FontMap, Markup};
 
-use pango::prelude::FontMapExt;
-
-use crate::error::{Error, Result};
-// use crate::template::Template;
-use crate::text::{FontManager, Markup};
 use cairo::ImageSurface;
 use libvips::{ops, VipsApp, VipsImage};
+use pango::prelude::FontMapExt;
 #[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -56,11 +54,11 @@ impl Default for Origin {
 }
 
 impl ImgBackend {
-    pub fn new(vips_app: VipsApp) -> Self {
-        Self {
-            vips_app,
+    pub fn new() -> Result<Self> {
+        Ok(Self {
+            vips_app: libvips::VipsApp::default("cartomata").map_err(|e| Error::VipsError(e.to_string()))?,
             cache: HashMap::new(),
-        }
+        })
     }
 
     fn err(&self, e: libvips::error::Error) -> Error {
@@ -232,8 +230,8 @@ impl ImgBackend {
     }
 
     pub fn stroke(&self, img: &VipsImage, stroke: Stroke) -> Result<VipsImage> {
-        let Stroke(radius, color) = stroke;
-        let mask = ops::black(radius * 2 + 1, radius * 2 + 1).map_err(|e| self.err(e))?;
+        let Stroke { size, color } = stroke;
+        let mask = ops::black(size * 2 + 1, size * 2 + 1).map_err(|e| self.err(e))?;
         let mask = ops::add(
             &mask,
             &VipsImage::new_from_image1(&mask, 128.0).map_err(|e| self.err(e))?,
@@ -242,15 +240,15 @@ impl ImgBackend {
         ops::draw_circle_with_opts(
             &mask,
             &mut [255.0],
-            radius,
-            radius,
-            radius,
+            size,
+            size,
+            size,
             &ops::DrawCircleOptions { fill: true },
         )
         .map_err(|e| self.err(e))?;
 
         let (w, h) = (img.get_width(), img.get_height());
-        let img = ops::embed(&img, radius, radius, w + 2 * radius, h + 2 * radius)
+        let img = ops::embed(&img, size, size, w + 2 * size, h + 2 * size)
             .map_err(|e| self.err(e))?;
 
         let alpha = ops::extract_band(&img, 3).map_err(|e| self.err(e))?;
@@ -296,33 +294,32 @@ impl ImgBackend {
         ops::composite_2(&base, &src, mode.into()).map_err(|e| self.err(e))
     }
 
-    pub fn print<'f>(
+    pub fn print(
         &self,
-        fm: &'f FontManager<'f>,
-        markup: Markup<'f>,
-        max_w: Option<i32>,
-        font: &'f str,
+        fm: &FontMap,
+        markup: Markup,
+        font: &str,
         size: f64,
         color: Color,
-    ) -> Result<VipsImage> {
+        params: &[LayoutAttr],
+    ) -> Result<(VipsImage, pango::Layout)> {
         let err = |e: cairo::Error| Error::CairoError(e.to_string());
-        let (attrs, text) = markup.parsed(fm, font, pango::SCALE * size as i32, color);
         let ctx = pangocairo::FontMap::new().create_context();
+        let layout = pango::Layout::new(&ctx);
+        params.iter().for_each(|p| p.configure(&ctx, &layout));
+        
         let mut opt = cairo::FontOptions::new().map_err(err)?;
         opt.set_antialias(cairo::Antialias::Good);
         pangocairo::functions::context_set_font_options(&ctx, Some(&opt));
-        pangocairo::functions::context_set_resolution(&ctx, 300.0);
-        let (attr_list, images) = self.convert_attrs(&attrs, &ctx);
-        let layout = pango::Layout::new(&ctx);
-        if let Some(w) = max_w {
-            layout.set_width(w);
-        }
-        layout.set_font_description(fm.get_desc(font, size).as_ref());
+        
+        let (attrs, text) = markup.parsed(font.to_string(), pango::SCALE * size as i32, color);
+        let (attr_list, images) = self.convert_attrs(fm, &ctx, attrs)?;
+        layout.set_font_description(fm.get_desc_pt(font, size).as_ref());
         layout.set_attributes(Some(&attr_list));
         layout.set_text(&text);
 
-        let (_ink_rect, log_rect) = layout.extents();
-        let base = {
+        let (_, log_rect) = layout.extents();
+        let mut base = {
             let base = cairo::ImageSurface::create(
                 cairo::Format::ARgb32,
                 log_rect.width() / pango::SCALE,
@@ -333,9 +330,8 @@ impl ImgBackend {
             let (r, g, b, a) = color.rgba();
             cr.set_source_rgba(r, g, b, a);
             pangocairo::functions::show_layout(&cr, &layout);
-            base
+            self.cairo_to_vips(base)?
         };
-        let mut base = self.cairo_to_vips(base)?;
 
         if let Some(atl) = attr_list.filter(|att| att.type_() == pango::AttrType::Shape) {
             for (att, img) in atl.attributes().iter().zip(images) {
@@ -356,36 +352,39 @@ impl ImgBackend {
                 }
             }
         }
-        Ok(base)
+        Ok((base, layout))
     }
 
     fn convert_attrs(
         &self,
-        attrs: &Vec<IndexedAttr>,
+        fm: &FontMap,
         ctx: &pango::Context,
-    ) -> (pango::AttrList, Vec<Option<VipsImage>>) {
+        attrs: Vec<ITagAttr>,
+    ) -> Result<(pango::AttrList, Vec<Option<VipsImage>>)> {
         let mut attr_list = pango::AttrList::new();
         let mut images = Vec::new();
-        for attr in attrs.iter() {
-            match &attr.value {
-                Attr::Span(a) => {
-                    a.push_pango_attrs(&mut attr_list, attr.start_index, attr.end_index)
+        for attr in attrs.into_iter() {
+            match attr.value {
+                TagAttr::Span(a) => {
+                    a.push_pango_attrs(fm, &mut attr_list, attr.start_index, attr.end_index)?
                 }
-                Attr::Img(a) => {
+                TagAttr::Img(a) => {
                     let img = a.push_pango_attrs(
                         self,
-                        &mut attr_list,
+                        fm,
                         ctx,
+                        &mut attr_list,
                         attr.start_index,
                         attr.end_index,
                     );
                     images.push(img);
                 }
-                Attr::Icon(a) => {
+                TagAttr::Icon(a) => {
                     let img = a.push_pango_attrs(
                         self,
-                        &mut attr_list,
+                        fm,
                         ctx,
+                        &mut attr_list,
                         attr.start_index,
                         attr.end_index,
                     );
@@ -393,6 +392,6 @@ impl ImgBackend {
                 }
             }
         }
-        (attr_list, images)
+        Ok((attr_list, images))
     }
 }

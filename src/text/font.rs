@@ -8,31 +8,35 @@ use fontconfig_sys::fontconfig as sys;
 use std::path::Path;
 use std::{collections::HashMap, ffi::CString};
 
-pub struct FontManager<'f> {
-    fc: &'f Fontconfig,
-    loaded: HashMap<&'f str, Pattern<'f>>,
+pub struct FontMap<'f> {
+    fc: Fontconfig,
+    loaded: HashMap<&'f str, String>,
 }
 
-impl<'f> FontManager<'f> {
-    pub fn new(fc: &'f Fontconfig) -> Self {
-        Self {
-            fc,
+impl<'f> FontMap<'f> {
+    pub fn new() -> Result<Self> {
+        Ok(Self {
+            fc: fontconfig::Fontconfig::new().ok_or(Error::FontConfigInitError)?,
             loaded: HashMap::new(),
-        }
-    }
-
-    pub fn get(&'f self, key: &str) -> Option<&'f Pattern<'f>> {
-        self.loaded.get(key)
-    }
-
-    pub fn get_desc(&self, key: &str, size: f64) -> Option<pango::FontDescription> {
-        self.loaded.get(key).map(|pat| {
-            pango::FontDescription::from_string(&format!("{} {size:.2}", pat.name().unwrap_or("")))
         })
     }
 
-    pub fn check(&'f self, key: &str) -> Option<(&'f str, &'f Pattern<'f>)> {
-        self.loaded.get_key_value(key).map(|(k, v)| (*k, v))
+    pub fn get(&'f self, key: &str) -> Option<&'f str> {
+        self.loaded.get(key).map(|s| s.as_str())
+    }
+
+    pub fn get_desc(&self, key: &str) -> Option<pango::FontDescription> {
+        self.get(key)
+            .map(|name| pango::FontDescription::from_string(name))
+    }
+
+    pub fn get_desc_pt(&self, key: &str, size: f64) -> Option<pango::FontDescription> {
+        self.get(key)
+            .map(|name| pango::FontDescription::from_string(&format!("{} {size:.2}", name)))
+    }
+
+    pub fn get_desc_abs(&self, key: &str, size: i32) -> Option<pango::FontDescription> {
+        self.get_desc_pt(key, size as f64 / pango::SCALE as f64)
     }
 
     pub fn load_from_template(&mut self, template: &'f Template) -> Result<()> {
@@ -55,8 +59,8 @@ impl<'f> FontManager<'f> {
         key: &'f str,
         family: &str,
         style: Option<&str>,
-    ) -> Result<&Pattern<'f>> {
-        let mut pat = Pattern::new(self.fc);
+    ) -> Result<()> {
+        let mut pat = Pattern::new(&self.fc);
         let c_family =
             CString::new(family).map_err(|_| Error::InvalidCString(family.to_string()))?;
         pat.add_string(sys::constants::FC_FAMILY.as_cstr(), &c_family);
@@ -67,20 +71,16 @@ impl<'f> FontManager<'f> {
             pat.add_string(sys::constants::FC_STYLE.as_cstr(), &c_style);
         }
 
-        let pat = Pattern::from_pattern(self.fc, pat.font_match().pat);
-        self.loaded.insert(key, pat);
-        Ok(self.loaded.get(key).unwrap())
+        let name = pat.font_match().name().unwrap_or("").to_string();
+        self.loaded.insert(key, name);
+        Ok(())
     }
 
-    pub fn load_font_from_file(
-        &mut self,
-        key: &'f str,
-        fp: impl AsRef<Path>,
-    ) -> Result<&Pattern<'f>> {
+    pub fn load_font_from_file(&mut self, key: &'f str, fp: impl AsRef<Path>) -> Result<()> {
         let fp = fp.as_ref();
         let c_fp = CString::new(fp.to_string_lossy().to_string())
             .map_err(|_| Error::InvalidCString(fp.to_string_lossy().to_string()))?;
-        let pat = self
+        let mut pat = self
             .load_pattern_from_file(&c_fp)
             .ok_or_else(|| Error::LoadFontError(key.into()))?;
 
@@ -93,12 +93,14 @@ impl<'f> FontManager<'f> {
         if status == 0 {
             Err(Error::LoadFontError(key.into()))
         } else {
-            self.loaded.insert(key, pat);
-            Ok(self.loaded.get(key).unwrap())
+            let name = pat.font_match().name().unwrap_or("").to_string();
+            drop(pat);
+            self.loaded.insert(key, name);
+            Ok(())
         }
     }
 
-    fn load_pattern_from_file(&self, c_fp: &CString) -> Option<Pattern<'f>> {
+    fn load_pattern_from_file<'s>(&'s self, c_fp: &CString) -> Option<Pattern<'s>> {
         unsafe {
             let set = sys::FcFontSetCreate();
             let status = sys::FcFileScan(

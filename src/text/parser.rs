@@ -1,5 +1,4 @@
 use crate::error::{Error, Result};
-use crate::text::font::FontManager;
 use crate::text::markup::Markup;
 
 use logos::{Lexer, Logos};
@@ -169,7 +168,7 @@ impl<'src> TextParser<'src> {
     }
 
     #[must_use]
-    pub fn parse<'f>(mut self, fm: &'f FontManager<'f>) -> Result<Markup<'f>> {
+    pub fn parse(mut self) -> Result<Markup> {
         let mut elems: Vec<Markup> = vec![Markup::Root(Vec::new())];
         let mut token = self.next_token()?;
         let mut stack = vec![Symbol::M];
@@ -186,7 +185,7 @@ impl<'src> TextParser<'src> {
                                 let slice = self.slice();
                                 let val = &unescape_val(slice);
                                 let tag = elems.last_mut().unwrap();
-                                tag.push_attr(fm, key, val)?;
+                                tag.push_attr(key, val)?;
                             }
                             Token::TagClose => {
                                 let tag = elems.pop().unwrap();

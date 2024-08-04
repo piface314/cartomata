@@ -14,7 +14,7 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Template {
     #[serde(rename = "template")]
@@ -25,7 +25,7 @@ pub struct Template {
     pub source: DataSourceConfig,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Base {
     pub name: String,
     pub size: CardSize,
@@ -43,32 +43,32 @@ fn default_extensions() -> Vec<String> {
     ]
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 pub struct CardSize {
     pub width: usize,
     pub height: usize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct AssetsConfig {
     pub path: Option<PathBuf>,
     pub cover: Option<PathBuf>,
     pub placeholder: Option<PathBuf>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ArtworkConfig {
     pub path: PathBuf,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct FontConfig {
     pub path: Option<PathBuf>,
     pub family: Option<String>,
     pub style: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct DataSourceConfig {
     pub default: Option<DataSourceType>,
     pub sqlite: Option<SqliteSourceConfig>,

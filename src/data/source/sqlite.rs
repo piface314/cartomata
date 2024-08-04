@@ -10,7 +10,7 @@ use rusqlite::{params_from_iter, Connection};
 use serde::Deserialize;
 use serde_rusqlite::from_rows;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct SqliteSourceConfig {
     pub query: String,
 }

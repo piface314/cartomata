@@ -5,6 +5,6 @@ mod font;
 mod markup;
 mod parser;
 
-pub use font::FontManager;
+pub use font::FontMap;
 pub use markup::Markup;
 pub use parser::{TextParser, escape, unescape};

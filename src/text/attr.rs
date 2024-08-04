@@ -1,22 +1,24 @@
 //! Text attribute values and conversions.
 
+use crate::error::{Error, Result};
 use crate::image::{Color, ImgBackend};
-use crate::text::FontManager;
+use crate::text::FontMap;
 
-use fontconfig::Pattern;
 use libvips::VipsImage;
 use regex::Regex;
+#[cfg(feature = "cli")]
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
-pub struct IndexedAttr<'f> {
-    pub value: Attr<'f>,
+pub struct ITagAttr {
+    pub value: TagAttr,
     pub start_index: u32,
     pub end_index: u32,
 }
 
-impl<'f> IndexedAttr<'f> {
-    pub fn new(value: Attr<'f>) -> Self {
+impl ITagAttr {
+    pub fn new(value: TagAttr) -> Self {
         Self {
             value,
             start_index: 0,
@@ -26,14 +28,14 @@ impl<'f> IndexedAttr<'f> {
 }
 
 #[derive(Debug, Clone)]
-pub enum Attr<'f> {
-    Span(SpanAttr<'f>),
+pub enum TagAttr {
+    Span(SpanAttr),
     Img(ImgAttr),
     Icon(IconAttr),
 }
 
 macro_rules! attr_parse {
-    ($fm:expr; $key:expr; $val:expr; $($pat:expr, $att:ident, $T:ty);*) => {{
+    ($key:expr; $val:expr; $($pat:expr, $att:ident, $T:ty);*) => {{
         match $key {
             $($pat => Ok(Self::$att($val.parse::<$T>().map_err(|e|
                 crate::error::Error::TextAttrParseError($key.to_string(), e.to_string())
@@ -46,30 +48,18 @@ macro_rules! attr_parse {
 macro_rules! enum_attr {
     (
         $(#[$outer:meta])*
-        $vis:vis enum $Attr:ident <$lt:lifetime> {
-            $FontVar:ident($FT:ty),
+        $vis:vis enum $Attr:ident {
             $( $k:literal => $Variant:ident($T:ty) ),*,
         }
     ) => {
         $(#[$outer])*
-        $vis enum $Attr<$lt> {
-            $FontVar($FT, pango::FontDescription),
+        $vis enum $Attr {
             $( $Variant($T) ),*
         }
 
-        impl<$lt> $Attr<$lt> {
-            pub fn from_key_value(fm: &$lt FontManager<$lt>, key: &str, value: &str) -> crate::error::Result<Self> {
-                if key == "font" {
-                    match fm.check(value) {
-                        Some((f, pat)) => {
-                            let desc = pango::FontDescription::from_string(pat.name().unwrap_or(""));
-                            Ok(Self::$FontVar(f, desc))
-                        },
-                        None => Err(crate::error::Error::FontCacheMiss(value.to_string()))
-                    }
-                } else {
-                    attr_parse!(fm; key; value; $( $k, $Variant, $T );*)
-                }
+        impl $Attr {
+            pub fn from_key_value(key: &str, value: &str) -> Result<Self> {
+                attr_parse!(key; value; $( $k, $Variant, $T );*)
             }
         }
     };
@@ -79,27 +69,25 @@ macro_rules! struct_attr {
     (
         $(#[$outer:meta])*
         $vis:vis struct $Attr:ident {
-            $( $k:literal => $Field:ident: $T:ty ),*,
-            $( $ExtraField:ident: $ET:ty ),*
+            $( $k:literal => $Field:ident: $T:ty ),*
         }
     ) => {
         $(#[$outer])*
         $vis struct $Attr {
             $( pub $Field: Option<$T>, )*
-            $( pub $ExtraField: Option<$ET>, )*
         }
 
         impl $Attr {
-            pub fn push(&mut self, key: &str, value: &str) -> crate::error::Result<()> {
+            pub fn push(&mut self, key: &str, value: &str) -> Result<()> {
                 match key {
                     $($k => {
                         let parsed = value.parse::<$T>().map_err(|e|
-                            crate::error::Error::TextAttrParseError(key.to_string(), e.to_string())
+                            Error::TextAttrParseError(key.to_string(), e.to_string())
                         )?;
                         self.$Field = Some(parsed);
                         Ok(())
                     } ) *
-                    _ => Err(crate::error::Error::TextInvalidAttr(key.to_string())),
+                    _ => Err(Error::TextInvalidAttr(key.to_string())),
                 }
             }
         }
@@ -108,10 +96,10 @@ macro_rules! struct_attr {
 
 enum_attr! {
     #[derive(Debug, Clone)]
-    pub enum SpanAttr<'f> {
-        Font(&'f str),
+    pub enum SpanAttr {
+        "font" => Font(String),
         "features" => Features(String),
-        "size" => Size(Size),
+        "size" => Size(Points),
         "scale" => Scale(Scale),
         "color" => Color(Color),
         "alpha" => Alpha(f64),
@@ -121,7 +109,7 @@ enum_attr! {
         "underline-color" => UnderlineColor(Color),
         "overline" => Overline(Overline),
         "overline-color" => OverlineColor(Color),
-        "rise" => Rise(Size),
+        "rise" => Rise(Points),
         "baseline-shift" => BaselineShift(BaselineShift),
         "strikethrough" => Strikethrough(bool),
         "strikethrough-color" => StrikethroughColor(Color),
@@ -149,87 +137,93 @@ macro_rules! indexed {
 }
 
 macro_rules! push {
-    ($attrs:ident << AttrInt $fn:ident($v:ident) at $i:ident, $j:ident) => {
-        $attrs.insert(indexed!(pango::AttrInt::$fn(*$v); at $i, $j))
-    };
-    ($attrs:ident << AttrFloat $fn:ident($v:ident) at $i:ident, $j:ident) => {
-        $attrs.insert(indexed!(pango::AttrFloat::$fn(*$v); at $i, $j))
-    };
-    ($attrs:ident << AttrColor $fn:ident($v:expr) at $i:ident, $j:ident) => {{
-        let (r, g, b) = $v.pango_rgb();
+    (AttrFontDesc ($fm:ident($font:ident)) >> $attrs:ident at $i:ident, $j:ident) => {{
+        let desc = $fm.get_desc(&$font).ok_or_else(|| Error::FontCacheMiss($font.clone()))?;
+        $attrs.insert(indexed!(pango::AttrFontDesc::new(&desc); at $i, $j));
+    }};
+    ($Attr:ident ($val:expr) >> $attrs:ident at $i:ident, $j:ident) => {{
+        $attrs.insert(indexed!(pango::$Attr::new($val); at $i, $j))
+    }};
+    (AttrColor $fn:ident($val:expr) >> $attrs:ident at $i:ident, $j:ident) => {{
+        let (r, g, b) = $val.pango_rgb();
         $attrs.insert(indexed!(pango::AttrColor::$fn(r, g, b); at $i, $j));
     }};
-    ($attrs:ident << AttrAlpha $fn:ident($v:expr) at $i:ident, $j:ident) => {
-        $attrs.insert(indexed!(pango::AttrInt::$fn(Color::pango_channel(*$v)); at $i, $j))
-    };
-    ($attrs:ident << AttrRgba $fnc:ident $fna:ident($v:expr) at $i:ident, $j:ident) => {{
-        push!($attrs << AttrColor $fnc($v) at $i, $j);
-        if let Some(a) = &$v.a {
-            push!($attrs << AttrAlpha $fna(a) at $i, $j);
+    (AttrAlpha $fn:ident($val:expr) >> $attrs:ident at $i:ident, $j:ident) => {{
+        push!(AttrInt $fn(Color::pango_channel($val)) >> $attrs at $i, $j)
+    }};
+    (AttrColor $fnc:ident $fna:ident($v:expr) >> $attrs:ident at $i:ident, $j:ident) => {{
+        push!(AttrColor $fnc ($v) >> $attrs at $i, $j);
+        if let Some(a) = $v.a {
+            push!(AttrAlpha $fna (a) >> $attrs at $i, $j);
+        }
+    }};
+    ($Attr:ident $fn:ident($val:expr) >> $attrs:ident at $i:ident, $j:ident) => {{
+        $attrs.insert(indexed!(pango::$Attr::$fn($val); at $i, $j))
+    }};
+    ($T:ident into $Attr:ident $fn:ident($val:expr) >> $attrs:ident at $i:ident, $j:ident) => {{
+        let v: pango::$T = $val.into();
+        $attrs.insert(indexed!(pango::$Attr::$fn(v); at $i, $j))
+    }};
+    (Segment into AttrInt ($val:expr) >> $attrs:ident at $i:ident, $j:ident) => {{
+        match $val {
+            Segment::Word => $attrs.insert(indexed!(pango::AttrInt::new_word(); at $i, $j)),
+            Segment::Sentence => $attrs.insert(indexed!(pango::AttrInt::new_sentence(); at $i, $j)),
         }
     }};
 }
 
-impl<'f> SpanAttr<'f> {
-    pub fn push_pango_attrs(&self, attrs: &mut pango::AttrList, i: u32, j: u32) {
+impl SpanAttr {
+    pub fn push_pango_attrs(
+        self,
+        fm: &FontMap,
+        attrs: &mut pango::AttrList,
+        i: u32,
+        j: u32,
+    ) -> Result<()> {
         match self {
-            Self::Font(_, desc) => attrs.insert(indexed!(pango::AttrFontDesc::new(desc); at i, j)),
-            Self::Features(features) => {
-                attrs.insert(indexed!(pango::AttrFontFeatures::new(features); at i, j))
+            Self::Font(x) => push!(AttrFontDesc (fm(x)) >> attrs at i, j),
+            Self::Features(x) => push!(AttrFontFeatures (&x) >> attrs at i, j),
+            Self::Size(Points(x)) => push!(AttrSize (x) >> attrs at i, j),
+            Self::Scale(Scale(x)) => push!(AttrFloat new_scale (x) >> attrs at i, j),
+            Self::Color(x) => {
+                push!(AttrColor new_foreground new_foreground_alpha (x) >> attrs at i, j)
             }
-            Self::Size(Size(size)) => attrs.insert(indexed!(pango::AttrSize::new(*size); at i, j)),
-            Self::Scale(Scale(scale)) => push!(attrs << AttrFloat new_scale(scale) at i, j),
-            Self::Color(color) => {
-                push!(attrs << AttrRgba new_foreground new_foreground_alpha(color) at i, j)
+            Self::Alpha(a) => push!(AttrAlpha new_foreground_alpha (a) >> attrs at i, j),
+            Self::BgColor(x) => {
+                push!(AttrColor new_background new_background_alpha (x) >> attrs at i, j)
             }
-            Self::Alpha(a) => push!(attrs << AttrAlpha new_background_alpha(a) at i, j),
-            Self::BgColor(color) => {
-                push!(attrs << AttrRgba new_background new_background_alpha(color) at i, j);
+            Self::BgAlpha(x) => push!(AttrAlpha new_background_alpha (x) >> attrs at i, j),
+            Self::Underline(x) => push!(Underline into AttrInt new_underline (x) >> attrs at i, j),
+            Self::UnderlineColor(x) => push!(AttrColor new_underline_color (x) >> attrs at i, j),
+            Self::Overline(x) => push!(Overline into AttrInt new_overline (x) >> attrs at i, j),
+            Self::OverlineColor(x) => push!(AttrColor new_overline_color (x) >> attrs at i, j),
+            Self::Rise(Points(x)) => push!(AttrInt new_rise (x) >> attrs at i, j),
+            Self::BaselineShift(x) => {
+                push!(BaselineShift into AttrInt new_baseline_shift (x) >> attrs at i, j)
             }
-            Self::BgAlpha(a) => push!(attrs << AttrAlpha new_background_alpha(a) at i, j),
-            Self::Underline(Underline(underline)) => {
-                push!(attrs << AttrInt new_underline(underline) at i, j)
+            Self::Strikethrough(x) => push!(AttrInt new_strikethrough (x) >> attrs at i, j),
+            Self::StrikethroughColor(x) => {
+                push!(AttrColor new_strikethrough_color (x) >> attrs at i, j)
             }
-            Self::UnderlineColor(color) => {
-                push!(attrs << AttrColor new_underline_color(color) at i, j)
+            Self::Fallback(x) => push!(AttrInt new_fallback (x) >> attrs at i, j),
+            Self::Lang(x) => {
+                push!(AttrLanguage (&pango::Language::from_string(&x)) >> attrs at i, j)
             }
-            Self::Overline(Overline(overline)) => {
-                push!(attrs << AttrInt new_overline(overline) at i, j)
+            Self::LetterSpacing(x) => push!(AttrInt new_letter_spacing (x) >> attrs at i, j),
+            Self::Gravity(x) => push!(Gravity into AttrInt new_gravity (x) >> attrs at i, j),
+            Self::GravityHint(x) => {
+                push!(GravityHint into AttrInt new_gravity_hint (x) >> attrs at i, j)
             }
-            Self::OverlineColor(color) => {
-                push!(attrs << AttrColor new_overline_color(color) at i, j)
+            Self::Show(ShowFlags(x)) => push!(AttrInt new_show (x) >> attrs at i, j),
+            Self::InsertHyphens(x) => push!(AttrInt new_insert_hyphens (x) >> attrs at i, j),
+            Self::AllowBreaks(x) => push!(AttrInt new_allow_breaks (x) >> attrs at i, j),
+            Self::LineHeight(x) => push!(AttrFloat new_line_height (x) >> attrs at i, j),
+            Self::TextTransform(x) => {
+                push!(TextTransform into AttrInt new_text_transform (x) >> attrs at i, j)
             }
-            Self::Rise(Size(rise)) => push!(attrs << AttrInt new_rise(rise) at i, j),
-            Self::BaselineShift(BaselineShift(shift)) => {
-                push!(attrs << AttrInt new_baseline_shift(shift) at i, j)
-            }
-            Self::Strikethrough(s) => push!(attrs << AttrInt new_strikethrough(s) at i, j),
-            Self::StrikethroughColor(color) => {
-                push!(attrs << AttrColor new_strikethrough_color(color) at i, j)
-            }
-            Self::Fallback(f) => push!(attrs << AttrInt new_fallback(f) at i, j),
-            Self::Lang(lang) => attrs.insert(
-                indexed!(pango::AttrLanguage::new( &pango::Language::from_string(lang), ); at i, j),
-            ),
-            Self::LetterSpacing(ls) => push!(attrs << AttrInt new_letter_spacing(ls) at i, j),
-            Self::Gravity(Gravity(g)) => push!(attrs << AttrInt new_gravity(g) at i, j),
-            Self::GravityHint(GravityHint(gh)) => {
-                push!(attrs << AttrInt new_gravity_hint(gh) at i, j)
-            }
-            Self::Show(ShowFlags(f)) => push!(attrs << AttrInt new_show(f) at i, j),
-            Self::InsertHyphens(f) => push!(attrs << AttrInt new_insert_hyphens(f) at i, j),
-            Self::AllowBreaks(f) => push!(attrs << AttrInt new_allow_breaks(f) at i, j),
-            Self::LineHeight(f) => push!(attrs << AttrFloat new_line_height(f) at i, j),
-            Self::TextTransform(TextTransform(f)) => {
-                push!(attrs << AttrInt new_text_transform(f) at i, j)
-            }
-            Self::Segment(Segment::Word) => {
-                attrs.insert(indexed!(pango::AttrInt::new_word(); at i, j))
-            }
-            Self::Segment(Segment::Sentence) => {
-                attrs.insert(indexed!(pango::AttrInt::new_sentence(); at i, j))
-            }
+            Self::Segment(x) => push!(Segment into AttrInt (x) >> attrs at i, j),
         }
+        Ok(())
     }
 }
 
@@ -241,66 +235,8 @@ struct_attr! {
         "height" => height: i32,
         "scale" => scale: Scale,
         "alpha" => alpha: f64,
-        desc: pango::FontDescription
-    }
-}
-
-impl ImgAttr {
-    #[must_use]
-    pub fn configured(mut self, font: &Pattern, size: i32, scale: f64, alpha: f64) -> Self {
-        let size = size as f64 * self.scale.map(|s| s.0).unwrap_or(scale);
-        self.desc = font
-            .name()
-            .map(|name| pango::FontDescription::from_string(&format!("{name} {size}")));
-        if self.alpha.is_none() {
-            self.alpha = Some(alpha);
-        }
-        self
-    }
-
-    pub fn push_pango_attrs(
-        &self,
-        ib: &ImgBackend,
-        attrs: &mut pango::AttrList,
-        ctx: &pango::Context,
-        i: u32,
-        j: u32,
-    ) -> Option<VipsImage> {
-        if self.src.is_none() {
-            return None;
-        }
-        let metrics = ctx.metrics(self.desc.as_ref(), None);
-        let fp = self.src.as_ref().unwrap();
-        let cached_img = ib.get_cached(fp).ok();
-        let new_img = if cached_img.is_none() {
-            ib.open(fp).ok()
-        } else {
-            None
-        };
-        let img = cached_img.or(new_img.as_ref())?;
-        let img = match self {
-            Self {
-                width: None,
-                height: None,
-                scale: Some(Scale(s)),
-                ..
-            } => ib
-                .scale_to(img, None, Some(s * metrics.height() as f64))
-                .ok()?,
-            Self { width, height, .. } => ib
-                .scale_to(img, width.map(|v| v as f64), height.map(|v| v as f64))
-                .ok()?,
-        };
-        let img = match self.alpha {
-            Some(a) => ib.set_opacity(&img, a).ok()?,
-            None => img,
-        };
-        let asc_ratio = metrics.ascent() as f64 / metrics.height() as f64;
-        let (w, h) = (img.get_width() * pango::SCALE, img.get_height() * pango::SCALE);
-        let y = (h as f64 * asc_ratio) as i32;
-        let rect = pango::Rectangle::new(0, -y, w, h);
-        attrs.insert(indexed!(pango::AttrShape::new(&rect, &rect); at i, j));
-        Some(img)
+        "font" => font: String,
+        "size" => size: i32
     }
 }
 
@@ -313,7 +249,45 @@ struct_attr! {
         "scale" => scale: Scale,
         "color" => color: Color,
         "alpha" => alpha: f64,
-        desc: pango::FontDescription
+        "font" => font: String,
+        "size" => size: i32
+    }
+}
+
+macro_rules! set_if_none {
+    ($self:ident.$field:ident = $val:expr) => {
+        if $self.$field.is_none() {
+            $self.$field = Some($val);
+        }
+    };
+}
+
+impl ImgAttr {
+    #[must_use]
+    pub fn configured(mut self, font: &str, size: i32, scale: f64, alpha: f64) -> Self {
+        set_if_none!(self.font = font.to_string());
+        set_if_none!(self.size = size);
+        set_if_none!(self.scale = Scale(scale));
+        set_if_none!(self.alpha = alpha);
+        self
+    }
+
+    pub fn push_pango_attrs(
+        self,
+        ib: &ImgBackend,
+        fm: &FontMap,
+        ctx: &pango::Context,
+        attrs: &mut pango::AttrList,
+        i: u32,
+        j: u32,
+    ) -> Option<VipsImage> {
+        let (cached_img, new_img) = open_img(ib, self.src.as_ref()?);
+        let img = cached_img.or(new_img.as_ref())?;
+        let metrics = get_metrics(fm, ctx, self.font.as_ref()?, self.size?)?;
+        let img = resize_img(ib, img, &metrics, self.width, self.height, self.scale)?;
+        let img = recolor_img(ib, img, None, self.alpha)?;
+        push_img_rect(attrs, i, j, &img, &metrics);
+        Some(img)
     }
 }
 
@@ -321,103 +295,133 @@ impl IconAttr {
     #[must_use]
     pub fn configured(
         mut self,
-        font: &Pattern,
+        font: &str,
         size: i32,
         scale: f64,
         color: Color,
         alpha: f64,
     ) -> Self {
-        let size = size as f64 * self.scale.map(|s| s.0).unwrap_or(scale);
-        self.desc = font
-            .name()
-            .map(|name| pango::FontDescription::from_string(&format!("{name} {size}")));
-        if self.color.is_none() {
-            self.color = Some(color);
-        }
-        if self.alpha.is_none() {
-            self.alpha = Some(alpha);
-        }
+        set_if_none!(self.font = font.to_string());
+        set_if_none!(self.size = size);
+        set_if_none!(self.color = color);
+        set_if_none!(self.scale = Scale(scale));
+        set_if_none!(self.alpha = alpha);
         self
     }
 
     pub fn push_pango_attrs(
         &self,
         ib: &ImgBackend,
-        attrs: &mut pango::AttrList,
+        fm: &FontMap,
         ctx: &pango::Context,
+        attrs: &mut pango::AttrList,
         i: u32,
         j: u32,
     ) -> Option<VipsImage> {
-        if self.src.is_none() {
-            return None;
-        }
-        let metrics = ctx.metrics(self.desc.as_ref(), None);
-        let fp = self.src.as_ref().unwrap();
-        let cached_img = ib.get_cached(fp).ok();
-        let new_img = if cached_img.is_none() {
-            ib.open(fp).ok()
-        } else {
-            None
-        };
+        let (cached_img, new_img) = open_img(ib, self.src.as_ref()?);
         let img = cached_img.or(new_img.as_ref())?;
-        let img = match self {
-            Self {
-                width: None,
-                height: None,
-                scale: Some(Scale(s)),
-                ..
-            } => ib
-                .scale_to(img, None, Some(s * metrics.height() as f64))
-                .ok()?,
-            Self { width, height, .. } => ib
-                .scale_to(img, width.map(|v| v as f64), height.map(|v| v as f64))
-                .ok()?,
-        };
-        let img = match self {
-            Self {
-                color: Some(Color { r, g, b, .. }),
-                alpha: Some(a),
-                ..
-            } => ib.set_color(&img, Color::from_rgba(*r, *g, *b, *a)).expect("1"),
-            Self {
-                color: Some(color),
-                alpha: None,
-                ..
-            } => ib.set_color(&img, *color).ok()?,
-            Self { alpha: Some(a), .. } => ib.set_opacity(&img, *a).expect("2"),
-            _ => img,
-        };
-        let asc_ratio = metrics.ascent() as f64 / metrics.height() as f64;
-        let (w, h) = (img.get_width() * pango::SCALE, img.get_height() * pango::SCALE);
-        let y = (h as f64 * asc_ratio) as i32;
-        let rect = pango::Rectangle::new(0, -y, w, h);
-        attrs.insert(indexed!(pango::AttrShape::new(&rect, &rect); at i, j));
+        let metrics = get_metrics(fm, ctx, self.font.as_ref()?, self.size?)?;
+        let img = resize_img(ib, img, &metrics, self.width, self.height, self.scale)?;
+        let img = recolor_img(ib, img, self.color, self.alpha)?;
+        push_img_rect(attrs, i, j, &img, &metrics);
         Some(img)
     }
 }
 
-fn parse_abs_or_pt(s: &str) -> Option<i32> {
-    let re = Regex::new(r"^([+-]?\d+(.\d+)?)(\s*pt)?$").unwrap();
-    let captures = re.captures(s)?;
-    let using_pt = captures.get(3).is_some();
-    if using_pt {
-        let x = f64::from_str(captures.get(1).unwrap().as_str()).unwrap();
-        Some((x * pango::SCALE as f64) as i32)
+fn open_img<'i>(ib: &'i ImgBackend, src: &String) -> (Option<&'i VipsImage>, Option<VipsImage>) {
+    let cached_img = ib.get_cached(&src).ok();
+    let new_img = if cached_img.is_none() {
+        ib.open(&src).ok()
     } else {
-        let x = f64::from_str(captures.get(1).unwrap().as_str()).unwrap();
-        Some(x as i32)
+        None
+    };
+    (cached_img, new_img)
+}
+
+fn get_metrics(
+    fm: &FontMap,
+    ctx: &pango::Context,
+    font: &String,
+    size: i32,
+) -> Option<pango::FontMetrics> {
+    let desc = fm.get_desc_abs(font, size)?;
+    Some(ctx.metrics(Some(&desc), None))
+}
+
+fn resize_img(
+    ib: &ImgBackend,
+    img: &VipsImage,
+    metrics: &pango::FontMetrics,
+    width: Option<i32>,
+    height: Option<i32>,
+    scale: Option<Scale>,
+) -> Option<VipsImage> {
+    match (width, height, scale) {
+        (None, None, Some(Scale(s))) => ib
+            .scale_to(img, None, Some(s * (metrics.height() / pango::SCALE) as f64))
+            .ok(),
+        (width, height, _) => ib
+            .scale_to(img, width.map(|v| v as f64), height.map(|v| v as f64))
+            .ok(),
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct Size(pub i32);
+fn recolor_img(
+    ib: &ImgBackend,
+    img: VipsImage,
+    color: Option<Color>,
+    alpha: Option<f64>,
+) -> Option<VipsImage> {
+    match (color, alpha) {
+        (Some(Color { r, g, b, .. }), Some(a)) => {
+            ib.set_color(&img, Color::from_rgba(r, g, b, a)).ok()
+        }
+        (Some(color), None) => ib.set_color(&img, color).ok(),
+        (_, Some(a)) => ib.set_opacity(&img, a).ok(),
+        _ => Some(img),
+    }
+}
 
-impl FromStr for Size {
+fn push_img_rect(
+    attrs: &mut pango::AttrList,
+    i: u32,
+    j: u32,
+    img: &VipsImage,
+    metrics: &pango::FontMetrics,
+) {
+    let asc_ratio = metrics.ascent() as f64 / metrics.height() as f64;
+    let (w, h) = (
+        img.get_width() * pango::SCALE,
+        img.get_height() * pango::SCALE,
+    );
+    let y = (h as f64 * asc_ratio) as i32;
+    let rect = pango::Rectangle::new(0, -y, w, h);
+    attrs.insert(indexed!(pango::AttrShape::new(&rect, &rect); at i, j));
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Points(pub i32);
+
+impl FromStr for Points {
     type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parse_abs_or_pt(s)
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Self::parse_abs_or_pt(s)
             .map(Self)
             .ok_or("expected an integer, or a number in pt")
+    }
+}
+
+impl Points {
+    fn parse_abs_or_pt(s: &str) -> Option<i32> {
+        let re = Regex::new(r"^([+-]?\d+(.\d+)?)(\s*pt)?$").unwrap();
+        let captures = re.captures(s)?;
+        if let Some(_) = captures.get(3) {
+            let x = f64::from_str(captures.get(1).unwrap().as_str()).unwrap();
+            Some((x * pango::SCALE as f64) as i32)
+        } else {
+            let x = f64::from_str(captures.get(1).unwrap().as_str()).unwrap();
+            Some(x as i32)
+        }
     }
 }
 
@@ -426,7 +430,7 @@ pub struct Scale(pub f64);
 
 impl FromStr for Scale {
     type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "xx-small" => Ok(Self(pango::SCALE_XX_SMALL)),
             "x-small" => Ok(Self(pango::SCALE_X_SMALL)),
@@ -448,87 +452,126 @@ impl FromStr for Scale {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Overline(pub pango::Overline);
-
-impl FromStr for Overline {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "none" => Ok(Self(pango::Overline::None)),
-            "single" => Ok(Self(pango::Overline::Single)),
-            _ => Err("expected one of `none`, `single`"),
+macro_rules! into_pango {
+    (
+        $(#[$outer:meta])*
+        $vis:vis enum $Enum:ident {
+            $( $key:literal => $Variant:ident ),*
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Underline(pub pango::Underline);
-
-impl FromStr for Underline {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "none" => Ok(Self(pango::Underline::None)),
-            "single" => Ok(Self(pango::Underline::Single)),
-            "double" => Ok(Self(pango::Underline::Double)),
-            "low" => Ok(Self(pango::Underline::Low)),
-            "error" => Ok(Self(pango::Underline::Error)),
-            _ => Err("expected one of `none`, `single`, `double`, `low`, `error`"),
+    ) => {
+        $(#[$outer])*
+        $vis enum $Enum {
+            $( $Variant ),*
         }
-    }
-}
 
-#[derive(Debug, Clone, Copy)]
-pub struct BaselineShift(pub pango::BaselineShift);
-
-impl FromStr for BaselineShift {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "none" => Ok(Self(pango::BaselineShift::None)),
-            "superscript" => Ok(Self(pango::BaselineShift::Superscript)),
-            "subscript" => Ok(Self(pango::BaselineShift::Subscript)),
-            _ => {
-                let v = parse_abs_or_pt(s).ok_or(
-                    "expected either `none`, `superscript`, `subscript`, \
-                    an integer, or a number in pt",
-                )?;
-                Ok(Self(pango::BaselineShift::__Unknown(v)))
+        impl FromStr for $Enum {
+            type Err = &'static str;
+            fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+                match s {
+                    $( $key => Ok(Self::$Variant), )*
+                    _ => Err(
+                        concat!("expected one of", $(" `", $key, "`"),*)
+                    ),
+                }
             }
         }
+
+        impl Into<pango::$Enum> for $Enum {
+            fn into(self) -> pango::$Enum {
+                match self {
+                    $( Self::$Variant => pango::$Enum::$Variant ),*
+                }
+            }
+        }
+    };
+    (
+        $(#[$outer:meta])*
+        $vis:vis enum $Enum:ident {
+            $( $Variant:ident ),*
+        }
+    ) => {
+        $(#[$outer])*
+        $vis enum $Enum {
+            $( $Variant ),*
+        }
+
+        impl Into<pango::$Enum> for $Enum {
+            fn into(self) -> pango::$Enum {
+                match self {
+                    $( Self::$Variant => pango::$Enum::$Variant ),*
+                }
+            }
+        }
+    };
+}
+
+into_pango! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    pub enum Underline {
+        "none" => None,
+        "single" => Single,
+        "double" => Double,
+        "low" => Low,
+        "error" => Error
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Gravity(pub pango::Gravity);
-
-impl FromStr for Gravity {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "south" => Ok(Self(pango::Gravity::South)),
-            "east" => Ok(Self(pango::Gravity::East)),
-            "north" => Ok(Self(pango::Gravity::North)),
-            "west" => Ok(Self(pango::Gravity::West)),
-            "auto" => Ok(Self(pango::Gravity::Auto)),
-            _ => Err("expected one of `south`, `east`, `north`, `west`, `auto`"),
-        }
+into_pango! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    pub enum Overline {
+        "none" => None,
+        "single" => Single
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct GravityHint(pub pango::GravityHint);
+into_pango! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    pub enum BaselineShift {
+        "none" => None,
+        "superscript" => Superscript,
+        "subscript" => Subscript
+    }
+}
 
-impl FromStr for GravityHint {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "natural" => Ok(Self(pango::GravityHint::Natural)),
-            "strong" => Ok(Self(pango::GravityHint::Strong)),
-            "line" => Ok(Self(pango::GravityHint::Line)),
-            _ => Err("expected one of `natural`, `strong`, `line`"),
-        }
+into_pango! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    pub enum Gravity {
+        "south" => South,
+        "east" => East,
+        "north" => North,
+        "west" => West,
+        "auto" => Auto
+    }
+}
+
+into_pango! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    pub enum GravityHint {
+        "natural" => Natural,
+        "strong" => Strong,
+        "line" => Line
+    }
+}
+
+into_pango! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    pub enum TextTransform {
+        "none" => None,
+        "lowercase" => Lowercase,
+        "uppercase" => Uppercase,
+        "capitalize" => Capitalize
     }
 }
 
@@ -537,7 +580,7 @@ pub struct ShowFlags(pub pango::ShowFlags);
 
 impl FromStr for ShowFlags {
     type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let mut flags: pango::ShowFlags = pango::ShowFlags::empty();
         for s in s.split('|') {
             let other = match s {
@@ -553,23 +596,15 @@ impl FromStr for ShowFlags {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TextTransform(pub pango::TextTransform);
-
-impl FromStr for TextTransform {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "none" => Ok(Self(pango::TextTransform::None)),
-            "lowercase" => Ok(Self(pango::TextTransform::Lowercase)),
-            "uppercase" => Ok(Self(pango::TextTransform::Uppercase)),
-            "capitalize" => Ok(Self(pango::TextTransform::Capitalize)),
-            _ => Err("expected one of `none`, `lowercase`, `uppercase`, `capitalize`"),
-        }
+impl Into<pango::ShowFlags> for ShowFlags {
+    fn into(self) -> pango::ShowFlags {
+        self.0
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
 pub enum Segment {
     Word,
     Sentence,
@@ -577,11 +612,80 @@ pub enum Segment {
 
 impl FromStr for Segment {
     type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "word" => Ok(Self::Word),
             "sentence" => Ok(Self::Sentence),
             _ => Err("expected one of `word`, `sentence`"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum LayoutAttr {
+    Alignment(Alignment),
+    AutoDir(bool),
+    Dpi(f64),
+    Direction(Direction),
+    Gravity(Gravity),
+    GravityHint(GravityHint),
+    Indent(f64),
+    Justify(bool),
+    Language(String),
+    LineSpacing(f64),
+    Spacing(f64),
+    // TODO: Tabs
+    Width(i32),
+    Wrap(WrapMode),
+}
+
+into_pango! {
+    #[derive(Debug, Copy, Clone, Deserialize)]
+    pub enum Direction {
+        Ltr,
+        Rtl,
+        TtbLtr,
+        TtbRtl,
+        WeakLtr,
+        WeakRtl,
+        Neutral
+    }
+}
+
+into_pango! {
+    #[derive(Debug, Copy, Clone, Deserialize)]
+    pub enum Alignment {
+        Left,
+        Center,
+        Right
+    }
+}
+
+into_pango! {
+    #[derive(Debug, Copy, Clone, Deserialize)]
+    pub enum WrapMode {
+        Word,
+        Char,
+        WordChar
+    }
+}
+
+impl LayoutAttr {
+    pub fn configure(&self, ctx: &pango::Context, layout: &pango::Layout) {
+        match self {
+            Self::Dpi(x) => pangocairo::functions::context_set_resolution(&ctx, *x),
+            Self::Direction(x) => ctx.set_base_dir((*x).into()),
+            Self::Gravity(x) => ctx.set_base_gravity((*x).into()),
+            Self::GravityHint(x) => ctx.set_gravity_hint((*x).into()),
+            Self::Language(x) => ctx.set_language(Some(&pango::Language::from_string(x))),
+            Self::Alignment(x) => layout.set_alignment((*x).into()),
+            Self::AutoDir(x) => layout.set_auto_dir(*x),
+            Self::Indent(x) => layout.set_indent((x * pango::SCALE as f64) as i32),
+            Self::Justify(x) => layout.set_justify(*x),
+            Self::LineSpacing(x) => layout.set_line_spacing(*x as f32),
+            Self::Spacing(x) => layout.set_spacing((x * pango::SCALE as f64) as i32),
+            Self::Width(x) => layout.set_width(x * pango::SCALE),
+            Self::Wrap(x) => layout.set_wrap((*x).into()),
         }
     }
 }
