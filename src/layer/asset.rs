@@ -1,9 +1,8 @@
 //! Represents an image layer loaded from the template assets
 
 use crate::error::Result;
-use crate::image::{BlendMode, FitMode, ImgBackend, Origin, Stroke};
-use crate::layer::Layer;
-use crate::template::Template;
+use crate::image::{BlendMode, FitMode, Origin, Stroke};
+use crate::layer::{Layer, LayerContext};
 
 use libvips::VipsImage;
 #[cfg(feature = "cli")]
@@ -35,18 +34,19 @@ pub struct AssetLayer {
 }
 
 impl Layer for AssetLayer {
-    fn render(&self, img: VipsImage, ib: &mut ImgBackend, template: &Template) -> Result<VipsImage> {
-        let path = template.asset_path(&self.path)?;
-        ib.cache(&path)?;
-        let asset = ib.get_cached(&path)?;
-        let asset = ib.scale_to(&asset, self.w, self.h)?;
+    fn render(&self, img: VipsImage, ctx: &mut LayerContext) -> Result<VipsImage> {
+        let path = ctx.template.asset_path(&self.path)?;
+        let key = &path.to_string_lossy();
+        ctx.backend.cache(key)?;
+        let asset = ctx.backend.get_cached(key)?;
+        let asset = ctx.backend.scale_to(&asset, self.w, self.h)?;
         let asset = if let Some(stroke) = self.stroke {
-            ib.stroke(&asset, stroke)?
+            ctx.backend.stroke(&asset, stroke)?
         } else {
             asset
         };
-        let (asset, ox, oy) = ib.rotate(&asset, self.r, self.ox, self.oy)?;
+        let (asset, ox, oy) = ctx.backend.rotate(&asset, self.r, self.ox, self.oy)?;
         let (ox, oy) = (Origin::Absolute(ox), Origin::Absolute(oy));
-        ib.overlay(&img, &asset, self.x, self.y, ox, oy, self.blend)
+        ctx.backend.overlay(&img, &asset, self.x, self.y, ox, oy, self.blend)
     }
 }

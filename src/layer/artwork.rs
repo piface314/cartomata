@@ -1,8 +1,8 @@
 //! Represents an image layer loaded from artwork folder.
 
 use crate::error::{Error, Result};
-use crate::image::{BlendMode, FitMode, ImgBackend, Origin, Stroke};
-use crate::layer::Layer;
+use crate::image::{BlendMode, FitMode, Origin, Stroke};
+use crate::layer::{Layer, LayerContext};
 use crate::template::Template;
 
 #[cfg(feature = "cli")]
@@ -56,26 +56,21 @@ impl ArtworkLayer {
 }
 
 impl Layer for ArtworkLayer {
-    fn render(
-        &self,
-        img: VipsImage,
-        ib: &mut ImgBackend,
-        template: &Template,
-    ) -> Result<VipsImage> {
+    fn render(&self, img: VipsImage, ctx: &mut LayerContext) -> Result<VipsImage> {
         let path = self
-            .find_file(template)
+            .find_file(ctx.template)
             .ok_or_else(|| Error::ArtworkNotFound(self.id.clone()))?;
-        let artwork = ib.open(path)?;
-        let artwork = ib.scale_to_fit(&artwork, self.w, self.h, self.fit)?;
+        let artwork = ctx.backend.open(path.to_string_lossy())?;
+        let artwork = ctx.backend.scale_to_fit(&artwork, self.w, self.h, self.fit)?;
         let artwork = if let Some(stroke) = self.stroke {
-            ib.stroke(&artwork, stroke)?
+            ctx.backend.stroke(&artwork, stroke)?
         } else {
             artwork
         };
-        let (artwork, dx, dy) = ib.rotate(&artwork, self.r, self.ox, self.oy)?;
+        let (artwork, dx, dy) = ctx.backend.rotate(&artwork, self.r, self.ox, self.oy)?;
         let ox = Origin::Absolute(-self.ox.apply(self.w));
         let oy = Origin::Absolute(-self.oy.apply(self.h));
-        ib.overlay(
+        ctx.backend.overlay(
             &img,
             &artwork,
             self.x - dx as i32,

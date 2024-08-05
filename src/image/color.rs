@@ -15,6 +15,9 @@ pub struct Color {
 }
 
 impl Color {
+    pub const WHITE: Self = Self {r: 1.0, g: 1.0, b: 1.0, a: Some(1.0)};
+    pub const BLACK: Self = Self {r: 0.0, g: 0.0, b: 0.0, a: Some(1.0)};
+
     pub fn from_rgb(r: f64, g: f64, b: f64) -> Self {
         Self { r, g, b, a: None }
     }

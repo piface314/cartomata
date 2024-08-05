@@ -3,6 +3,7 @@ use cartomata::data::{Card, DynCard};
 use cartomata::decode::dynamic::DynamicDecoder;
 use cartomata::decode::Decoder;
 use cartomata::image::ImgBackend;
+use cartomata::layer::LayerContext;
 use cartomata::template::Template;
 use cartomata::text::FontMap;
 use clap::Parser;
@@ -36,6 +37,11 @@ fn main() {
     fm.load_from_template(&template)
         .unwrap_or_else(|e| panic!("{e}"));
     let mut ib = ImgBackend::new().unwrap_or_else(|e| panic!("{e}"));
+    let mut layer_ctx = LayerContext {
+        backend: &mut ib,
+        font_map: &fm,
+        template: &template,
+    };
 
     let source_type = cli
         .source
@@ -63,7 +69,7 @@ fn main() {
                 continue;
             }
         };
-        let image_res = stack.render(&template, &mut ib);
+        let image_res = stack.render(&mut layer_ctx);
         match image_res {
             Ok(image) => {
                 let mut path = cli.output.clone();

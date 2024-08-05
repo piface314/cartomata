@@ -8,6 +8,7 @@ use libvips::VipsImage;
 use regex::Regex;
 #[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
@@ -274,14 +275,18 @@ impl ImgAttr {
 
     pub fn push_pango_attrs(
         self,
-        ib: &ImgBackend,
+        ib: &mut ImgBackend,
+        prefix: Option<&PathBuf>,
         fm: &FontMap,
         ctx: &pango::Context,
         attrs: &mut pango::AttrList,
         i: u32,
         j: u32,
     ) -> Option<VipsImage> {
-        let (cached_img, new_img) = open_img(ib, self.src.as_ref()?);
+        let fp = img_src_fp(prefix, self.src.as_ref()?);
+        let fp = &fp.to_string_lossy();
+        ib.cache(fp).ok()?;
+        let (cached_img, new_img) = open_img(ib, fp);
         let img = cached_img.or(new_img.as_ref())?;
         let metrics = get_metrics(fm, ctx, self.font.as_ref()?, self.size?)?;
         let img = resize_img(ib, img, &metrics, self.width, self.height, self.scale)?;
@@ -311,14 +316,18 @@ impl IconAttr {
 
     pub fn push_pango_attrs(
         &self,
-        ib: &ImgBackend,
+        ib: &mut ImgBackend,
+        prefix: Option<&PathBuf>,
         fm: &FontMap,
         ctx: &pango::Context,
         attrs: &mut pango::AttrList,
         i: u32,
         j: u32,
     ) -> Option<VipsImage> {
-        let (cached_img, new_img) = open_img(ib, self.src.as_ref()?);
+        let fp = img_src_fp(prefix, self.src.as_ref()?);
+        let fp = &fp.to_string_lossy();
+        ib.cache(fp).ok()?;
+        let (cached_img, new_img) = open_img(ib, fp);
         let img = cached_img.or(new_img.as_ref())?;
         let metrics = get_metrics(fm, ctx, self.font.as_ref()?, self.size?)?;
         let img = resize_img(ib, img, &metrics, self.width, self.height, self.scale)?;
@@ -328,7 +337,13 @@ impl IconAttr {
     }
 }
 
-fn open_img<'i>(ib: &'i ImgBackend, src: &String) -> (Option<&'i VipsImage>, Option<VipsImage>) {
+fn img_src_fp(prefix: Option<&PathBuf>, src: &str) -> PathBuf {
+    let mut fp = prefix.cloned().unwrap_or_else(|| PathBuf::new());
+    fp.push(src);
+    fp
+}
+
+fn open_img<'i>(ib: &'i ImgBackend, src: &str) -> (Option<&'i VipsImage>, Option<VipsImage>) {
     let cached_img = ib.get_cached(&src).ok();
     let new_img = if cached_img.is_none() {
         ib.open(&src).ok()
@@ -622,7 +637,7 @@ impl FromStr for Segment {
 }
 
 #[derive(Debug, Clone)]
-pub enum LayoutAttr {
+pub enum LayoutAttr<'a> {
     Alignment(Alignment),
     AutoDir(bool),
     Dpi(f64),
@@ -631,16 +646,17 @@ pub enum LayoutAttr {
     GravityHint(GravityHint),
     Indent(f64),
     Justify(bool),
-    Language(String),
+    Language(&'a str),
     LineSpacing(f64),
     Spacing(f64),
-    // TODO: Tabs
     Width(i32),
     Wrap(WrapMode),
 }
 
 into_pango! {
-    #[derive(Debug, Copy, Clone, Deserialize)]
+    #[derive(Debug, Copy, Clone)]
+    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
     pub enum Direction {
         Ltr,
         Rtl,
@@ -653,7 +669,9 @@ into_pango! {
 }
 
 into_pango! {
-    #[derive(Debug, Copy, Clone, Deserialize)]
+    #[derive(Debug, Copy, Clone)]
+    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
     pub enum Alignment {
         Left,
         Center,
@@ -662,7 +680,9 @@ into_pango! {
 }
 
 into_pango! {
-    #[derive(Debug, Copy, Clone, Deserialize)]
+    #[derive(Debug, Copy, Clone)]
+    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
     pub enum WrapMode {
         Word,
         Char,
@@ -670,7 +690,7 @@ into_pango! {
     }
 }
 
-impl LayoutAttr {
+impl<'a> LayoutAttr<'a> {
     pub fn configure(&self, ctx: &pango::Context, layout: &pango::Layout) {
         match self {
             Self::Dpi(x) => pangocairo::functions::context_set_resolution(&ctx, *x),

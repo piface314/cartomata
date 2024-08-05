@@ -8,7 +8,7 @@ mod stroke;
 use crate::error::{Error, Result};
 pub use crate::image::blend::BlendMode;
 pub use crate::image::color::Color;
-pub use crate::image::origin::Origin;
+pub use crate::image::origin::{Origin, TextOrigin};
 pub use crate::image::stroke::Stroke;
 use crate::text::attr::{ITagAttr, LayoutAttr, TagAttr};
 use crate::text::{FontMap, Markup};
@@ -19,7 +19,7 @@ use pango::prelude::FontMapExt;
 #[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::PathBuf;
 
 pub struct ImgBackend {
     vips_app: VipsApp,
@@ -96,24 +96,24 @@ impl ImgBackend {
         self.reinterpret(&img)
     }
 
-    pub fn open(&self, fp: impl AsRef<Path>) -> Result<VipsImage> {
+    pub fn open(&self, fp: impl AsRef<str>) -> Result<VipsImage> {
         let fp = fp.as_ref();
-        let img = VipsImage::new_from_file(&fp.to_string_lossy()).map_err(|e| self.err(e))?;
+        let img = VipsImage::new_from_file(fp).map_err(|e| self.err(e))?;
         self.reinterpret(&img)
     }
 
-    pub fn cache(&mut self, key: impl AsRef<Path>) -> Result<()> {
-        let key_str = key.as_ref().to_string_lossy();
-        if !self.cache.contains_key(key_str.as_ref()) {
+    pub fn cache(&mut self, key: impl AsRef<str>) -> Result<()> {
+        let key_str = key.as_ref();
+        if !self.cache.contains_key(key_str) {
             self.cache.insert(key_str.to_string(), self.open(key)?);
         }
         Ok(())
     }
 
-    pub fn get_cached(&self, key: impl AsRef<Path>) -> Result<&VipsImage> {
-        let key_str = key.as_ref().to_string_lossy();
+    pub fn get_cached(&self, key: impl AsRef<str>) -> Result<&VipsImage> {
+        let key_str = key.as_ref();
         self.cache
-            .get(key_str.as_ref())
+            .get(key_str)
             .ok_or_else(|| Error::ImageCacheMiss(key_str.to_string()))
     }
 
@@ -278,14 +278,18 @@ impl ImgBackend {
     }
 
     pub fn print(
-        &self,
-        fm: &FontMap,
+        &mut self,
         markup: Markup,
+        prefix: Option<&PathBuf>,
+        fm: &FontMap,
         font: &str,
         size: f64,
         color: Color,
         params: &[LayoutAttr],
     ) -> Result<(VipsImage, pango::Layout)> {
+        if fm.get(font).is_none() {
+            return Err(Error::FontCacheMiss(font.into()));
+        }
         let err = |e: cairo::Error| Error::CairoError(e.to_string());
         let ctx = pangocairo::FontMap::new().create_context();
         let layout = pango::Layout::new(&ctx);
@@ -296,7 +300,7 @@ impl ImgBackend {
         pangocairo::functions::context_set_font_options(&ctx, Some(&opt));
 
         let (attrs, text) = markup.parsed(font.to_string(), pango::SCALE * size as i32, color);
-        let (attr_list, images) = self.convert_attrs(fm, &ctx, attrs)?;
+        let (attr_list, images) = self.convert_attrs(prefix, fm, &ctx, attrs)?;
         layout.set_font_description(fm.get_desc_pt(font, size).as_ref());
         layout.set_attributes(Some(&attr_list));
         layout.set_text(&text);
@@ -338,7 +342,8 @@ impl ImgBackend {
     }
 
     fn convert_attrs(
-        &self,
+        &mut self,
+        prefix: Option<&PathBuf>,
         fm: &FontMap,
         ctx: &pango::Context,
         attrs: Vec<ITagAttr>,
@@ -353,6 +358,7 @@ impl ImgBackend {
                 TagAttr::Img(a) => {
                     let img = a.push_pango_attrs(
                         self,
+                        prefix,
                         fm,
                         ctx,
                         &mut attr_list,
@@ -364,6 +370,7 @@ impl ImgBackend {
                 TagAttr::Icon(a) => {
                     let img = a.push_pango_attrs(
                         self,
+                        prefix,
                         fm,
                         ctx,
                         &mut attr_list,

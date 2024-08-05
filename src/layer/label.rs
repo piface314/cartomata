@@ -2,9 +2,9 @@
 //! or multiline text areas.
 
 use crate::error::Result;
-use crate::image::{BlendMode, Color, Origin, Stroke, TextOrigin};
+use crate::image::{BlendMode, Color, ImgBackend, Origin, Stroke, TextOrigin};
 use crate::layer::{Layer, LayerContext};
-use crate::text::attr::{Alignment, Direction, Gravity, GravityHint, LayoutAttr, WrapMode};
+use crate::text::attr::{Direction, Gravity, GravityHint, LayoutAttr};
 use crate::text::TextParser;
 
 #[cfg(feature = "cli")]
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "cli", derive(Serialize, Deserialize, LuaLayer))]
-pub struct TextLayer {
+pub struct LabelLayer {
     pub text: String,
     pub x: i32,
     pub y: i32,
@@ -30,33 +30,30 @@ pub struct TextLayer {
     pub r: f64,
     #[cfg_attr(feature = "cli", serde(default))]
     pub ox: Origin,
-    #[cfg_attr(feature = "cli", serde(default))]
+    #[cfg_attr(feature = "cli", serde(default = "default_text_origin"))]
     pub oy: TextOrigin,
     #[cfg_attr(feature = "cli", serde(default))]
     pub blend: BlendMode,
     pub stroke: Option<Stroke>,
-    pub align: Option<Alignment>,
     pub auto_dir: Option<bool>,
     pub dpi: Option<f64>,
     pub direction: Option<Direction>,
     pub gravity: Option<Gravity>,
     pub gravity_hint: Option<GravityHint>,
-    pub indent: Option<f64>,
-    pub justify: Option<bool>,
     pub language: Option<String>,
-    pub line_spacing: Option<f64>,
-    pub spacing: Option<f64>,
-    pub wrap: Option<WrapMode>,
 }
 
 const fn default_color() -> Color {
     Color::BLACK
 }
 
-impl TextLayer {
+const fn default_text_origin() -> TextOrigin {
+    TextOrigin::Baseline
+}
+
+impl LabelLayer {
     fn layout_params(&self) -> Vec<LayoutAttr> {
         let mut params = Vec::new();
-        self.align.map(|x| params.push(LayoutAttr::Alignment(x)));
         self.auto_dir.map(|x| params.push(LayoutAttr::AutoDir(x)));
         self.dpi.map(|x| params.push(LayoutAttr::Dpi(x)));
         self.direction
@@ -64,21 +61,28 @@ impl TextLayer {
         self.gravity.map(|x| params.push(LayoutAttr::Gravity(x)));
         self.gravity_hint
             .map(|x| params.push(LayoutAttr::GravityHint(x)));
-        self.indent.map(|x| params.push(LayoutAttr::Indent(x)));
-        self.justify.map(|x| params.push(LayoutAttr::Justify(x)));
         self.language
             .as_ref()
             .map(|x| params.push(LayoutAttr::Language(x)));
-        self.line_spacing
-            .map(|x| params.push(LayoutAttr::LineSpacing(x)));
-        self.spacing.map(|x| params.push(LayoutAttr::Spacing(x)));
-        self.w.map(|x| params.push(LayoutAttr::Width(x)));
-        self.wrap.map(|x| params.push(LayoutAttr::Wrap(x)));
         params
+    }
+
+    fn resize(&self, ib: &ImgBackend, img: VipsImage) -> Result<VipsImage> {
+        if let Some(w) = self.w {
+            let iw = img.get_width();
+            if iw > w {
+                let s = w as f64 / iw as f64;
+                ib.scale(&img, 1.0, s)
+            } else {
+                Ok(img)
+            }
+        } else {
+            Ok(img)
+        }
     }
 }
 
-impl Layer for TextLayer {
+impl Layer for LabelLayer {
     fn render(&self, img: VipsImage, ctx: &mut LayerContext) -> Result<VipsImage> {
         let markup = TextParser::new(&self.text).parse()?;
         let prefix = ctx.template.assets_folder()?;
@@ -94,6 +98,7 @@ impl Layer for TextLayer {
             self.color,
             &params,
         )?;
+        let text_img = self.resize(&ctx.backend, text_img)?;
         let (text_img, dh) = if let Some(stroke) = self.stroke {
             (ctx.backend.stroke(&text_img, stroke)?, stroke.size)
         } else {

@@ -3,8 +3,7 @@
 use crate::data::DynCard;
 use crate::decode::Decoder;
 use crate::error::{Error, Result};
-use crate::layer::artwork::ArtworkLayer;
-use crate::layer::asset::AssetLayer;
+use crate::layer::{ArtworkLayer, AssetLayer, LabelLayer, TextLayer};
 use crate::layer::{Layer, LayerStack};
 use crate::template::Template;
 
@@ -42,7 +41,7 @@ impl<'lua> DynamicDecoder<'lua> {
         Self::extend_package_path(lua, req_path.display().to_string().as_str())
             .map_err(|e| Error::FailedPrepareDecoder(e.to_string()))?;
 
-        register!(lua, &module, AssetLayer ArtworkLayer);
+        register!(lua, &module, AssetLayer ArtworkLayer LabelLayer TextLayer);
 
         let decode: Function = lua
             .load(&chunk)
@@ -107,7 +106,7 @@ impl<'lua> FromLua<'lua> for Box<dyn Layer> {
     fn from_lua(value: LuaValue<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
         match &value {
             LuaValue::UserData(ud) => {
-                cast_layer!(value, lua, ud, AssetLayer ArtworkLayer)
+                cast_layer!(value, lua, ud, AssetLayer ArtworkLayer LabelLayer TextLayer)
             }
             _ => Err(LuaError::FromLuaConversionError {
                 from: value.type_name(),
