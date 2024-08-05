@@ -4,7 +4,7 @@ use cartomata::decode::dynamic::DynamicDecoder;
 use cartomata::decode::Decoder;
 use cartomata::image::ImgBackend;
 use cartomata::template::Template;
-use cartomata::text::FontManager;
+use cartomata::text::FontMap;
 use clap::Parser;
 use mlua::Lua;
 use serde::Deserialize;
@@ -29,15 +29,13 @@ fn main() {
             eprintln!("{panic_info}");
         }
     }));
-    let vips = libvips::VipsApp::new("libvips", false).expect("Cannot initialize libvips");
     let cli = Cli::parse();
     let template = Template::find(cli.template).unwrap_or_else(|e| panic!("{e}"));
 
-    let fc = fontconfig::Fontconfig::new().unwrap();
-    let mut fm = FontManager::new(&fc);
+    let mut fm = FontMap::new().unwrap_or_else(|e| panic!("{e}"));
     fm.load_from_template(&template)
         .unwrap_or_else(|e| panic!("{e}"));
-    let mut ib = ImgBackend::new(vips, fm);
+    let mut ib = ImgBackend::new().unwrap_or_else(|e| panic!("{e}"));
 
     let source_type = cli
         .source

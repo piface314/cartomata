@@ -24,11 +24,9 @@ pub struct AssetLayer {
     #[cfg_attr(feature = "cli", serde(default))]
     pub r: f64,
     #[cfg_attr(feature = "cli", serde(default))]
-    pub ox: f64,
+    pub ox: Origin,
     #[cfg_attr(feature = "cli", serde(default))]
-    pub oy: f64,
-    #[cfg_attr(feature = "cli", serde(default))]
-    pub origin: Origin,
+    pub oy: Origin,
     #[cfg_attr(feature = "cli", serde(default))]
     pub fit: FitMode,
     #[cfg_attr(feature = "cli", serde(default))]
@@ -47,7 +45,8 @@ impl Layer for AssetLayer {
         } else {
             asset
         };
-        let (asset, ox, oy) = ib.rotate(&asset, self.r, self.ox, self.oy, self.origin)?;
-        ib.overlay(&img, &asset, self.x, self.y, ox, oy, Origin::Absolute, self.blend)
+        let (asset, ox, oy) = ib.rotate(&asset, self.r, self.ox, self.oy)?;
+        let (ox, oy) = (Origin::Absolute(ox), Origin::Absolute(oy));
+        ib.overlay(&img, &asset, self.x, self.y, ox, oy, self.blend)
     }
 }

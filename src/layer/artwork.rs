@@ -25,11 +25,9 @@ pub struct ArtworkLayer {
     #[cfg_attr(feature = "cli", serde(default))]
     pub r: f64,
     #[cfg_attr(feature = "cli", serde(default = "default_origin"))]
-    pub ox: f64,
+    pub ox: Origin,
     #[cfg_attr(feature = "cli", serde(default = "default_origin"))]
-    pub oy: f64,
-    #[cfg_attr(feature = "cli", serde(default))]
-    pub origin: Origin,
+    pub oy: Origin,
     #[cfg_attr(feature = "cli", serde(default))]
     pub fit: FitMode,
     #[cfg_attr(feature = "cli", serde(default))]
@@ -37,8 +35,8 @@ pub struct ArtworkLayer {
     pub stroke: Option<Stroke>,
 }
 
-fn default_origin() -> f64 {
-    0.5
+fn default_origin() -> Origin {
+    Origin::Relative(0.5)
 }
 
 impl ArtworkLayer {
@@ -58,7 +56,12 @@ impl ArtworkLayer {
 }
 
 impl Layer for ArtworkLayer {
-    fn render(&self, img: VipsImage, ib: &mut ImgBackend, template: &Template) -> Result<VipsImage> {
+    fn render(
+        &self,
+        img: VipsImage,
+        ib: &mut ImgBackend,
+        template: &Template,
+    ) -> Result<VipsImage> {
         let path = self
             .find_file(template)
             .ok_or_else(|| Error::ArtworkNotFound(self.id.clone()))?;
@@ -69,19 +72,16 @@ impl Layer for ArtworkLayer {
         } else {
             artwork
         };
-        let (artwork, dx, dy) = ib.rotate(&artwork, self.r, self.ox, self.oy, self.origin)?;
-        let (ox, oy) = match self.origin {
-            Origin::Absolute => (self.ox, self.oy),
-            Origin::Relative => (self.w * self.ox, self.h * self.oy),
-        };
+        let (artwork, dx, dy) = ib.rotate(&artwork, self.r, self.ox, self.oy)?;
+        let ox = Origin::Absolute(-self.ox.apply(self.w));
+        let oy = Origin::Absolute(-self.oy.apply(self.h));
         ib.overlay(
             &img,
             &artwork,
             self.x - dx as i32,
             self.y - dy as i32,
-            -ox,
-            -oy,
-            Origin::Absolute,
+            ox,
+            oy,
             self.blend,
         )
     }

@@ -2,13 +2,15 @@
 
 mod blend;
 mod color;
+mod origin;
 mod stroke;
 
 use crate::error::{Error, Result};
-pub use crate::image::color::Color;
-pub use crate::image::stroke::Stroke;
 pub use crate::image::blend::BlendMode;
-use crate::text::attr::{ITagAttr, TagAttr, LayoutAttr};
+pub use crate::image::color::Color;
+pub use crate::image::origin::Origin;
+pub use crate::image::stroke::Stroke;
+use crate::text::attr::{ITagAttr, LayoutAttr, TagAttr};
 use crate::text::{FontMap, Markup};
 
 use cairo::ImageSurface;
@@ -39,24 +41,11 @@ impl Default for FitMode {
     }
 }
 
-#[derive(Debug, Copy, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-#[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
-pub enum Origin {
-    Absolute,
-    Relative,
-}
-
-impl Default for Origin {
-    fn default() -> Self {
-        Self::Relative
-    }
-}
-
 impl ImgBackend {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            vips_app: libvips::VipsApp::default("cartomata").map_err(|e| Error::VipsError(e.to_string()))?,
+            vips_app: libvips::VipsApp::default("cartomata")
+                .map_err(|e| Error::VipsError(e.to_string()))?,
             cache: HashMap::new(),
         })
     }
@@ -210,15 +199,12 @@ impl ImgBackend {
         &self,
         img: &VipsImage,
         deg: f64,
-        ox: f64,
-        oy: f64,
-        origin: Origin,
+        ox: Origin,
+        oy: Origin
     ) -> Result<(VipsImage, f64, f64)> {
         let (w, h) = (img.get_width() as f64, img.get_height() as f64);
-        let (ox, oy) = match origin {
-            Origin::Absolute => (ox, oy),
-            Origin::Relative => (ox * w, oy * h),
-        };
+        let ox = ox.apply(w);
+        let oy = oy.apply(h);
         let img = ops::rotate(&img, deg).map_err(|e| self.err(e))?;
         let (tw, th) = (img.get_width() as f64, img.get_height() as f64);
         let (sin, cos) = deg.to_radians().sin_cos();
@@ -248,8 +234,8 @@ impl ImgBackend {
         .map_err(|e| self.err(e))?;
 
         let (w, h) = (img.get_width(), img.get_height());
-        let img = ops::embed(&img, size, size, w + 2 * size, h + 2 * size)
-            .map_err(|e| self.err(e))?;
+        let img =
+            ops::embed(&img, size, size, w + 2 * size, h + 2 * size).map_err(|e| self.err(e))?;
 
         let alpha = ops::extract_band(&img, 3).map_err(|e| self.err(e))?;
         // TODO: "binarize" alpha before blur for better results
@@ -279,17 +265,14 @@ impl ImgBackend {
         src: &VipsImage,
         x: i32,
         y: i32,
-        ox: f64,
-        oy: f64,
-        origin: Origin,
+        ox: Origin,
+        oy: Origin,
         mode: BlendMode,
     ) -> Result<VipsImage> {
         let (bw, bh) = (base.get_width(), base.get_height());
         let (w, h) = (src.get_width() as f64, src.get_height() as f64);
-        let (ox, oy) = match origin {
-            Origin::Absolute => (ox as i32, oy as i32),
-            Origin::Relative => ((ox * w) as i32, (oy * h) as i32),
-        };
+        let ox = ox.apply(w) as i32;
+        let oy = oy.apply(h) as i32;
         let src = ops::embed(&src, x - ox, y - oy, bw, bh).map_err(|e| self.err(e))?;
         ops::composite_2(&base, &src, mode.into()).map_err(|e| self.err(e))
     }
@@ -307,11 +290,11 @@ impl ImgBackend {
         let ctx = pangocairo::FontMap::new().create_context();
         let layout = pango::Layout::new(&ctx);
         params.iter().for_each(|p| p.configure(&ctx, &layout));
-        
+
         let mut opt = cairo::FontOptions::new().map_err(err)?;
         opt.set_antialias(cairo::Antialias::Good);
         pangocairo::functions::context_set_font_options(&ctx, Some(&opt));
-        
+
         let (attrs, text) = markup.parsed(font.to_string(), pango::SCALE * size as i32, color);
         let (attr_list, images) = self.convert_attrs(fm, &ctx, attrs)?;
         layout.set_font_description(fm.get_desc_pt(font, size).as_ref());
@@ -344,9 +327,8 @@ impl ImgBackend {
                         &img,
                         x,
                         y,
-                        0.0,
-                        0.0,
-                        Origin::Absolute,
+                        Origin::Absolute(0.0),
+                        Origin::Absolute(0.0),
                         BlendMode::Over,
                     )?;
                 }
