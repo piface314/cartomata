@@ -5,7 +5,7 @@ use crate::error::Result;
 use crate::image::{BlendMode, Color, ImgBackend, Origin, Stroke, TextOrigin};
 use crate::layer::{Layer, LayerContext};
 use crate::text::attr::{Direction, Gravity, GravityHint, LayoutAttr};
-use crate::text::TextParser;
+use crate::text::Markup;
 
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
@@ -84,7 +84,7 @@ impl LabelLayer {
 
 impl Layer for LabelLayer {
     fn render(&self, img: VipsImage, ctx: &mut LayerContext) -> Result<VipsImage> {
-        let markup = TextParser::new(&self.text).parse()?;
+        let markup = Markup::from_string(&self.text)?;
         let prefix = ctx.template.assets_folder()?;
         let fm = ctx.font_map;
         let font = self.font.as_ref().map(|x| x.as_str()).unwrap_or("default");

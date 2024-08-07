@@ -1,6 +1,7 @@
 use crate::error::Result;
 use crate::image::Color;
-use crate::text::attr::{ITagAttr, IconAttr, ImgAttr, Scale, Points, SpanAttr, TagAttr};
+use crate::text::attr::{Gravity, ITagAttr, IconAttr, ImgAttr, Points, Scale, SpanAttr, TagAttr};
+use crate::text::parser::TextParser;
 
 #[derive(Debug, Clone)]
 pub enum Markup {
@@ -12,6 +13,10 @@ pub enum Markup {
 }
 
 impl Markup {
+    pub fn from_string(markup: &str) -> Result<Self> {
+        TextParser::new(markup).parse()
+    }
+
     pub fn push_attr(&mut self, key: &str, value: &str) -> Result<()> {
         match self {
             Self::SpanTag(attrs, _) => attrs.push(SpanAttr::from_key_value(key, value)?),
@@ -35,6 +40,7 @@ impl Markup {
         mut base_font: String,
         base_size: i32,
         base_color: Color,
+        base_gravity: Gravity,
     ) -> (Vec<ITagAttr>, String) {
         let mut attrs = Vec::new();
         let mut text = String::new();
@@ -46,6 +52,7 @@ impl Markup {
             1.0,
             base_color,
             1.0,
+            base_gravity,
         );
         (attrs, text)
     }
@@ -59,11 +66,12 @@ impl Markup {
         mut scale: f64,
         mut color: Color,
         mut alpha: f64,
+        mut gravity: Gravity,
     ) {
         match self {
             Self::Root(m) => {
                 for m in m.into_iter() {
-                    m.parsed_r(attrs, text, font, size, scale, color, alpha);
+                    m.parsed_r(attrs, text, font, size, scale, color, alpha, gravity);
                 }
             }
             Self::Text(t) => text.push_str(&t),
@@ -73,18 +81,19 @@ impl Markup {
                 for a in a.into_iter() {
                     let ia = ITagAttr::new(TagAttr::Span(a));
                     attrs.push(ia);
-                    match &attrs.first().unwrap().value {
+                    match &attrs.last().unwrap().value {
                         TagAttr::Span(SpanAttr::Font(new_font)) => font.clone_from(new_font),
                         TagAttr::Span(SpanAttr::Size(Points(new_size))) => size = *new_size,
                         TagAttr::Span(SpanAttr::Scale(Scale(new_scale))) => scale = *new_scale,
                         TagAttr::Span(SpanAttr::Color(new_color)) => color = *new_color,
                         TagAttr::Span(SpanAttr::Alpha(new_alpha)) => alpha = *new_alpha,
+                        TagAttr::Span(SpanAttr::Gravity(new_gravity)) => gravity = *new_gravity,
                         _ => {}
                     }
                 }
                 let j = attrs.len();
                 for m in m.into_iter() {
-                    m.parsed_r(attrs, text, font, size, scale, color, alpha);
+                    m.parsed_r(attrs, text, font, size, scale, color, alpha, gravity);
                 }
                 let end_index = text.len();
                 for a in attrs[i..j].iter_mut() {
@@ -96,7 +105,7 @@ impl Markup {
                 let start_index = text.len();
                 text.push_str("*");
                 attrs.push(ITagAttr {
-                    value: TagAttr::Img(a.configured(font, size, scale, alpha)),
+                    value: TagAttr::Img(a.configured(font, size, scale, alpha, gravity)),
                     start_index: start_index as u32,
                     end_index: start_index as u32 + 1,
                 })
@@ -105,7 +114,7 @@ impl Markup {
                 let start_index = text.len();
                 text.push_str("*");
                 attrs.push(ITagAttr {
-                    value: TagAttr::Icon(a.configured(font, size, scale, color, alpha)),
+                    value: TagAttr::Icon(a.configured(font, size, scale, color, alpha, gravity)),
                     start_index: start_index as u32,
                     end_index: start_index as u32 + 1,
                 })

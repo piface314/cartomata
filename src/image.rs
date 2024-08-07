@@ -10,7 +10,7 @@ pub use crate::image::blend::BlendMode;
 pub use crate::image::color::Color;
 pub use crate::image::origin::{Origin, TextOrigin};
 pub use crate::image::stroke::Stroke;
-use crate::text::attr::{ITagAttr, LayoutAttr, TagAttr};
+use crate::text::attr::{Gravity, ITagAttr, LayoutAttr, TagAttr};
 use crate::text::{FontMap, Markup};
 
 use cairo::ImageSurface;
@@ -200,7 +200,7 @@ impl ImgBackend {
         img: &VipsImage,
         deg: f64,
         ox: Origin,
-        oy: Origin
+        oy: Origin,
     ) -> Result<(VipsImage, f64, f64)> {
         let (w, h) = (img.get_width() as f64, img.get_height() as f64);
         let ox = ox.apply(w);
@@ -299,7 +299,9 @@ impl ImgBackend {
         opt.set_antialias(cairo::Antialias::Good);
         pangocairo::functions::context_set_font_options(&ctx, Some(&opt));
 
-        let (attrs, text) = markup.parsed(font.to_string(), pango::SCALE * size as i32, color);
+        let gravity = Gravity::from(ctx.gravity());
+        let (attrs, text) =
+            markup.parsed(font.to_string(), pango::SCALE * size as i32, color, gravity);
         let (attr_list, images) = self.convert_attrs(prefix, fm, &ctx, attrs)?;
         layout.set_font_description(fm.get_desc_pt(font, size).as_ref());
         layout.set_attributes(Some(&attr_list));

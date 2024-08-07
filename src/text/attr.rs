@@ -1,7 +1,7 @@
 //! Text attribute values and conversions.
 
 use crate::error::{Error, Result};
-use crate::image::{Color, ImgBackend};
+use crate::image::{Color, ImgBackend, Origin};
 use crate::text::FontMap;
 
 use libvips::VipsImage;
@@ -237,7 +237,8 @@ struct_attr! {
         "scale" => scale: Scale,
         "alpha" => alpha: f64,
         "font" => font: String,
-        "size" => size: i32
+        "size" => size: i32,
+        "gravity" => gravity: Gravity
     }
 }
 
@@ -251,7 +252,8 @@ struct_attr! {
         "color" => color: Color,
         "alpha" => alpha: f64,
         "font" => font: String,
-        "size" => size: i32
+        "size" => size: i32,
+        "gravity" => gravity: Gravity
     }
 }
 
@@ -265,11 +267,19 @@ macro_rules! set_if_none {
 
 impl ImgAttr {
     #[must_use]
-    pub fn configured(mut self, font: &str, size: i32, scale: f64, alpha: f64) -> Self {
+    pub fn configured(
+        mut self,
+        font: &str,
+        size: i32,
+        scale: f64,
+        alpha: f64,
+        gravity: Gravity,
+    ) -> Self {
         set_if_none!(self.font = font.to_string());
         set_if_none!(self.size = size);
         set_if_none!(self.scale = Scale(scale));
         set_if_none!(self.alpha = alpha);
+        set_if_none!(self.gravity = gravity);
         self
     }
 
@@ -288,8 +298,9 @@ impl ImgAttr {
         ib.cache(fp).ok()?;
         let (cached_img, new_img) = open_img(ib, fp);
         let img = cached_img.or(new_img.as_ref())?;
+        let img = rotate_img(ib, img, self.gravity.unwrap_or(Gravity::South))?;
         let metrics = get_metrics(fm, ctx, self.font.as_ref()?, self.size?)?;
-        let img = resize_img(ib, img, &metrics, self.width, self.height, self.scale)?;
+        let img = resize_img(ib, &img, &metrics, self.width, self.height, self.scale)?;
         let img = recolor_img(ib, img, None, self.alpha)?;
         push_img_rect(attrs, i, j, &img, &metrics);
         Some(img)
@@ -305,12 +316,14 @@ impl IconAttr {
         scale: f64,
         color: Color,
         alpha: f64,
+        gravity: Gravity,
     ) -> Self {
         set_if_none!(self.font = font.to_string());
         set_if_none!(self.size = size);
         set_if_none!(self.color = color);
         set_if_none!(self.scale = Scale(scale));
         set_if_none!(self.alpha = alpha);
+        set_if_none!(self.gravity = gravity);
         self
     }
 
@@ -329,8 +342,9 @@ impl IconAttr {
         ib.cache(fp).ok()?;
         let (cached_img, new_img) = open_img(ib, fp);
         let img = cached_img.or(new_img.as_ref())?;
+        let img = rotate_img(ib, img, self.gravity.unwrap_or(Gravity::South))?;
         let metrics = get_metrics(fm, ctx, self.font.as_ref()?, self.size?)?;
-        let img = resize_img(ib, img, &metrics, self.width, self.height, self.scale)?;
+        let img = resize_img(ib, &img, &metrics, self.width, self.height, self.scale)?;
         let img = recolor_img(ib, img, self.color, self.alpha)?;
         push_img_rect(attrs, i, j, &img, &metrics);
         Some(img)
@@ -363,6 +377,16 @@ fn get_metrics(
     Some(ctx.metrics(Some(&desc), None))
 }
 
+fn rotate_img(ib: &ImgBackend, img: &VipsImage, gravity: Gravity) -> Option<VipsImage> {
+    let (img, _, _) = match gravity {
+        Gravity::North => ib.rotate(&img, 180.0, Origin::default(), Origin::default()).ok()?,
+        Gravity::East => ib.rotate(&img, -90.0, Origin::default(), Origin::default()).ok()?,
+        Gravity::West => ib.rotate(&img, 90.0, Origin::default(), Origin::default()).ok()?,
+        _ => ib.rotate(&img, 0.0, Origin::default(), Origin::default()).ok()?,
+    };
+    Some(img)
+}
+
 fn resize_img(
     ib: &ImgBackend,
     img: &VipsImage,
@@ -373,7 +397,11 @@ fn resize_img(
 ) -> Option<VipsImage> {
     match (width, height, scale) {
         (None, None, Some(Scale(s))) => ib
-            .scale_to(img, None, Some(s * (metrics.height() / pango::SCALE) as f64))
+            .scale_to(
+                img,
+                None,
+                Some(s * (metrics.height() / pango::SCALE) as f64),
+            )
             .ok(),
         (width, height, _) => ib
             .scale_to(img, width.map(|v| v as f64), height.map(|v| v as f64))
@@ -564,6 +592,18 @@ into_pango! {
         "north" => North,
         "west" => West,
         "auto" => Auto
+    }
+}
+
+impl From<pango::Gravity> for Gravity {
+    fn from(value: pango::Gravity) -> Self {
+        match value {
+            pango::Gravity::South => Self::South,
+            pango::Gravity::East => Self::East,
+            pango::Gravity::North => Self::North,
+            pango::Gravity::West => Self::West,
+            _ => Self::Auto,
+        }
     }
 }
 

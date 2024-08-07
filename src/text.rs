@@ -7,4 +7,4 @@ mod parser;
 
 pub use font::FontMap;
 pub use markup::Markup;
-pub use parser::{TextParser, escape, unescape};
+pub use parser::{escape, unescape};
