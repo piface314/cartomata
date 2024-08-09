@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::text::attr::ImgAttr;
 use crate::text::markup::Markup;
 
 use logos::{Lexer, Logos};
@@ -226,7 +227,7 @@ impl<'src> TextParser<'src> {
                 }
                 (Symbol::T, Some(Token::TypeImg)) => {
                     // T → img A / >
-                    elems.push(Markup::ImgTag(Default::default()));
+                    elems.push(Markup::ImgTag(ImgAttr::new()));
                     stack.extend([
                         Symbol::Token(Token::TagClose),
                         Symbol::Token(Token::TagSep),
@@ -236,7 +237,7 @@ impl<'src> TextParser<'src> {
                 }
                 (Symbol::T, Some(Token::TypeIcon)) => {
                     // T → icon A / >
-                    elems.push(Markup::IconTag(Default::default()));
+                    elems.push(Markup::ImgTag(ImgAttr::new_inherit()));
                     stack.extend([
                         Symbol::Token(Token::TagClose),
                         Symbol::Token(Token::TagSep),

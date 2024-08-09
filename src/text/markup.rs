@@ -1,6 +1,6 @@
 use crate::error::Result;
 use crate::image::Color;
-use crate::text::attr::{Gravity, ITagAttr, IconAttr, ImgAttr, Points, Scale, SpanAttr, TagAttr};
+use crate::text::attr::{Gravity, ITagAttr, ImgAttr, Points, Scale, SpanAttr, TagAttr};
 use crate::text::parser::TextParser;
 
 #[derive(Debug, Clone)]
@@ -9,7 +9,6 @@ pub enum Markup {
     Text(String),
     SpanTag(Vec<SpanAttr>, Vec<Markup>),
     ImgTag(ImgAttr),
-    IconTag(IconAttr),
 }
 
 impl Markup {
@@ -21,7 +20,6 @@ impl Markup {
         match self {
             Self::SpanTag(attrs, _) => attrs.push(SpanAttr::from_key_value(key, value)?),
             Self::ImgTag(attrs) => attrs.push(key, value)?,
-            Self::IconTag(attrs) => attrs.push(key, value)?,
             _ => unreachable!("trying to add attr to non tag"),
         };
         Ok(())
@@ -105,16 +103,7 @@ impl Markup {
                 let start_index = text.len();
                 text.push_str("*");
                 attrs.push(ITagAttr {
-                    value: TagAttr::Img(a.configured(font, size, scale, alpha, gravity)),
-                    start_index: start_index as u32,
-                    end_index: start_index as u32 + 1,
-                })
-            }
-            Self::IconTag(a) => {
-                let start_index = text.len();
-                text.push_str("*");
-                attrs.push(ITagAttr {
-                    value: TagAttr::Icon(a.configured(font, size, scale, color, alpha, gravity)),
+                    value: TagAttr::Img(a.configured(font, size, scale, color, alpha, gravity)),
                     start_index: start_index as u32,
                     end_index: start_index as u32 + 1,
                 })

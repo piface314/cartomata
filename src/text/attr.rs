@@ -31,7 +31,6 @@ impl ITagAttr {
 pub enum TagAttr {
     Span(SpanAttr),
     Img(ImgAttr),
-    Icon(IconAttr),
 }
 
 macro_rules! attr_parse {
@@ -97,33 +96,33 @@ macro_rules! struct_attr {
 enum_attr! {
     #[derive(Debug, Clone)]
     pub enum SpanAttr {
-        "font" => Font(String),
-        "features" => Features(String),
-        "size" => Size(Points),
-        "scale" => Scale(Scale),
-        "color" => Color(Color),
-        "alpha" => Alpha(f64),
-        "bg-color" => BgColor(Color),
-        "bg-alpha" => BgAlpha(f64),
-        "underline" => Underline(Underline),
+        "font"            => Font(String),
+        "features"        => Features(String),
+        "size"            => Size(Points),
+        "scale"           => Scale(Scale),
+        "color"           => Color(Color),
+        "alpha"           => Alpha(f64),
+        "bg-color"        => BgColor(Color),
+        "bg-alpha"        => BgAlpha(f64),
+        "underline"       => Underline(Underline),
         "underline-color" => UnderlineColor(Color),
-        "overline" => Overline(Overline),
-        "overline-color" => OverlineColor(Color),
-        "rise" => Rise(Points),
-        "baseline-shift" => BaselineShift(BaselineShift),
-        "strikethrough" => Strikethrough(bool),
-        "strikethrough-color" => StrikethroughColor(Color),
-        "fallback" => Fallback(bool),
-        "lang" => Lang(String),
-        "letter-spacing" => LetterSpacing(i32),
-        "gravity" => Gravity(Gravity),
-        "gravity-hint" => GravityHint(GravityHint),
-        "show" => Show(ShowFlags),
-        "insert-hyphens" => InsertHyphens(bool),
-        "allow-breaks" => AllowBreaks(bool),
-        "line-height" => LineHeight(f64),
-        "text-transform" => TextTransform(TextTransform),
-        "segment" => Segment(Segment),
+        "overline"        => Overline(Overline),
+        "overline-color"  => OverlineColor(Color),
+        "rise"            => Rise(Points),
+        "baseline-shift"  => BaselineShift(BaselineShift),
+        "strike"          => Strike(bool),
+        "strike-color"    => StrikeColor(Color),
+        "fallback"        => Fallback(bool),
+        "lang"            => Lang(String),
+        "letter-spacing"  => LetterSpacing(i32),
+        "gravity"         => Gravity(Gravity),
+        "gravity-hint"    => GravityHint(GravityHint),
+        "show"            => Show(ShowFlags),
+        "insert-hyphens"  => InsertHyphens(bool),
+        "allow-breaks"    => AllowBreaks(bool),
+        "line-height"     => LineHeight(f64),
+        "text-transform"  => TextTransform(TextTransform),
+        "segment"         => Segment(Segment),
     }
 }
 
@@ -201,10 +200,8 @@ impl SpanAttr {
             Self::BaselineShift(x) => {
                 push!(BaselineShift into AttrInt new_baseline_shift (x) >> attrs at i, j)
             }
-            Self::Strikethrough(x) => push!(AttrInt new_strikethrough (x) >> attrs at i, j),
-            Self::StrikethroughColor(x) => {
-                push!(AttrColor new_strikethrough_color (x) >> attrs at i, j)
-            }
+            Self::Strike(x) => push!(AttrInt new_strikethrough (x) >> attrs at i, j),
+            Self::StrikeColor(x) => push!(AttrColor new_strikethrough_color (x) >> attrs at i, j),
             Self::Fallback(x) => push!(AttrInt new_fallback (x) >> attrs at i, j),
             Self::Lang(x) => {
                 push!(AttrLanguage (&pango::Language::from_string(&x)) >> attrs at i, j)
@@ -230,29 +227,16 @@ impl SpanAttr {
 struct_attr! {
     #[derive(Debug, Clone, Default)]
     pub struct ImgAttr {
-        "src" => src: String,
-        "width" => width: i32,
-        "height" => height: i32,
-        "scale" => scale: Scale,
-        "alpha" => alpha: f64,
-        "font" => font: String,
-        "size" => size: i32,
-        "gravity" => gravity: Gravity
-    }
-}
-
-struct_attr! {
-    #[derive(Debug, Clone, Default)]
-    pub struct IconAttr {
-        "src" => src: String,
-        "width" => width: i32,
-        "height" => height: i32,
-        "scale" => scale: Scale,
-        "color" => color: Color,
-        "alpha" => alpha: f64,
-        "font" => font: String,
-        "size" => size: i32,
-        "gravity" => gravity: Gravity
+        "src"     => src: String,
+        "width"   => width: i32,
+        "height"  => height: i32,
+        "scale"   => scale: Scale,
+        "color"   => color: Color,
+        "alpha"   => alpha: f64,
+        "font"    => font: String,
+        "size"    => size: i32,
+        "gravity" => gravity: Gravity,
+        "inherit" => inherit: bool
     }
 }
 
@@ -262,51 +246,25 @@ macro_rules! set_if_none {
             $self.$field = Some($val);
         }
     };
+    (and $cond:expr; then $self:ident.$field:ident = $val:expr) => {
+        if $cond && $self.$field.is_none() {
+            $self.$field = Some($val);
+        }
+    };
 }
 
 impl ImgAttr {
-    #[must_use]
-    pub fn configured(
-        mut self,
-        font: &str,
-        size: i32,
-        scale: f64,
-        alpha: f64,
-        gravity: Gravity,
-    ) -> Self {
-        set_if_none!(self.font = font.to_string());
-        set_if_none!(self.size = size);
-        set_if_none!(self.scale = Scale(scale));
-        set_if_none!(self.alpha = alpha);
-        set_if_none!(self.gravity = gravity);
-        self
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    pub fn push_pango_attrs(
-        self,
-        ib: &mut ImgBackend,
-        im: &ImageMap,
-        fm: &FontMap,
-        ctx: &pango::Context,
-        attrs: &mut pango::AttrList,
-        i: u32,
-        j: u32,
-    ) -> Option<VipsImage> {
-        let fp = im.asset_path(self.src.as_ref()?);
-        let fp = &fp.to_string_lossy();
-        ib.cache(fp).ok()?;
-        let (cached_img, new_img) = open_img(ib, fp);
-        let img = cached_img.or(new_img.as_ref())?;
-        let img = rotate_img(ib, img, self.gravity.unwrap_or(Gravity::South))?;
-        let metrics = get_metrics(fm, ctx, self.font.as_ref()?, self.size?)?;
-        let img = resize_img(ib, &img, &metrics, self.width, self.height, self.scale)?;
-        let img = recolor_img(ib, img, None, self.alpha)?;
-        push_img_rect(attrs, i, j, &img, &metrics);
-        Some(img)
+    pub fn new_inherit() -> Self {
+        Self {
+            inherit: Some(true),
+            ..Self::default()
+        }
     }
-}
 
-impl IconAttr {
     #[must_use]
     pub fn configured(
         mut self,
@@ -319,7 +277,7 @@ impl IconAttr {
     ) -> Self {
         set_if_none!(self.font = font.to_string());
         set_if_none!(self.size = size);
-        set_if_none!(self.color = color);
+        set_if_none!(and self.inherit.unwrap_or(false); then self.color = color);
         set_if_none!(self.scale = Scale(scale));
         set_if_none!(self.alpha = alpha);
         set_if_none!(self.gravity = gravity);
@@ -377,7 +335,9 @@ fn rotate_img(ib: &ImgBackend, img: &VipsImage, gravity: Gravity) -> Option<Vips
         Gravity::West => 90.0,
         _ => 0.0,
     };
-    let (img, _, _) = ib.rotate(&img, deg, Origin::default(), Origin::default()).ok()?;
+    let (img, _, _) = ib
+        .rotate(&img, deg, Origin::default(), Origin::default())
+        .ok()?;
     Some(img)
 }
 
@@ -545,11 +505,11 @@ into_pango! {
     #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
     #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
     pub enum Underline {
-        "none" => None,
+        "none"   => None,
         "single" => Single,
         "double" => Double,
-        "low" => Low,
-        "error" => Error
+        "low"    => Low,
+        "error"  => Error
     }
 }
 
@@ -558,7 +518,7 @@ into_pango! {
     #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
     #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
     pub enum Overline {
-        "none" => None,
+        "none"   => None,
         "single" => Single
     }
 }
@@ -568,9 +528,9 @@ into_pango! {
     #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
     #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
     pub enum BaselineShift {
-        "none" => None,
+        "none"        => None,
         "superscript" => Superscript,
-        "subscript" => Subscript
+        "subscript"   => Subscript
     }
 }
 
@@ -580,10 +540,10 @@ into_pango! {
     #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
     pub enum Gravity {
         "south" => South,
-        "east" => East,
+        "east"  => East,
         "north" => North,
-        "west" => West,
-        "auto" => Auto
+        "west"  => West,
+        "auto"  => Auto
     }
 }
 
@@ -605,8 +565,8 @@ into_pango! {
     #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
     pub enum GravityHint {
         "natural" => Natural,
-        "strong" => Strong,
-        "line" => Line
+        "strong"  => Strong,
+        "line"    => Line
     }
 }
 
@@ -615,9 +575,9 @@ into_pango! {
     #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
     #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
     pub enum TextTransform {
-        "none" => None,
-        "lowercase" => Lowercase,
-        "uppercase" => Uppercase,
+        "none"       => None,
+        "lowercase"  => Lowercase,
+        "uppercase"  => Uppercase,
         "capitalize" => Capitalize
     }
 }

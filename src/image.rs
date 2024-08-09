@@ -369,18 +369,6 @@ impl ImgBackend {
                     );
                     images.push(img);
                 }
-                TagAttr::Icon(a) => {
-                    let img = a.push_pango_attrs(
-                        self,
-                        im,
-                        fm,
-                        ctx,
-                        &mut attr_list,
-                        attr.start_index,
-                        attr.end_index,
-                    );
-                    images.push(img);
-                }
             }
         }
         Ok((attr_list, images))
