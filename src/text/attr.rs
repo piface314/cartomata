@@ -371,12 +371,13 @@ fn get_metrics(
 }
 
 fn rotate_img(ib: &ImgBackend, img: &VipsImage, gravity: Gravity) -> Option<VipsImage> {
-    let (img, _, _) = match gravity {
-        Gravity::North => ib.rotate(&img, 180.0, Origin::default(), Origin::default()).ok()?,
-        Gravity::East => ib.rotate(&img, -90.0, Origin::default(), Origin::default()).ok()?,
-        Gravity::West => ib.rotate(&img, 90.0, Origin::default(), Origin::default()).ok()?,
-        _ => ib.rotate(&img, 0.0, Origin::default(), Origin::default()).ok()?,
+    let deg = match gravity {
+        Gravity::North => 180.0,
+        Gravity::East => -90.0,
+        Gravity::West => 90.0,
+        _ => 0.0,
     };
+    let (img, _, _) = ib.rotate(&img, deg, Origin::default(), Origin::default()).ok()?;
     Some(img)
 }
 
@@ -393,12 +394,10 @@ fn resize_img(
             .scale_to(
                 img,
                 None,
-                Some(s * (metrics.height() / pango::SCALE) as f64),
+                Some((s * (metrics.height() / pango::SCALE) as f64) as i32),
             )
             .ok(),
-        (width, height, _) => ib
-            .scale_to(img, width.map(|v| v as f64), height.map(|v| v as f64))
-            .ok(),
+        (width, height, _) => ib.scale_to(img, width, height).ok(),
     }
 }
 
