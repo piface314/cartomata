@@ -1,9 +1,8 @@
 //! Represents an image layer loaded from artwork folder.
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::image::{BlendMode, FitMode, Origin, Stroke};
-use crate::layer::{Layer, LayerContext};
-use crate::template::Template;
+use crate::layer::{Layer, RenderContext};
 
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
@@ -12,7 +11,6 @@ use libvips::VipsImage;
 use mlua::LuaSerdeExt;
 #[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "cli", derive(Deserialize, Serialize, LuaLayer))]
@@ -39,29 +37,13 @@ fn default_origin() -> Origin {
     Origin::Relative(0.5)
 }
 
-impl ArtworkLayer {
-    fn find_file(&self, template: &Template) -> Option<PathBuf> {
-        let mut path = template.artwork_folder();
-        path.push(&self.id);
-        template
-            .base
-            .ext
-            .iter()
-            .filter_map(move |ext| {
-                path.set_extension(ext);
-                path.exists().then(|| path.clone())
-            })
-            .next()
-    }
-}
-
 impl Layer for ArtworkLayer {
-    fn render(&self, img: VipsImage, ctx: &mut LayerContext) -> Result<VipsImage> {
-        let path = self
-            .find_file(ctx.template)
-            .ok_or_else(|| Error::ArtworkNotFound(self.id.clone()))?;
+    fn render(&self, img: VipsImage, ctx: &mut RenderContext) -> Result<VipsImage> {
+        let path = ctx.img_map.artwork_path(&self.id)?;
         let artwork = ctx.backend.open(path.to_string_lossy())?;
-        let artwork = ctx.backend.scale_to_fit(&artwork, self.w, self.h, self.fit)?;
+        let artwork = ctx
+            .backend
+            .scale_to_fit(&artwork, self.w, self.h, self.fit)?;
         let artwork = if let Some(stroke) = self.stroke {
             ctx.backend.stroke(&artwork, stroke)?
         } else {

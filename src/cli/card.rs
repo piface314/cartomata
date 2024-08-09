@@ -1,25 +1,12 @@
 //! Contains representations for card data.
 
-#[cfg(feature = "cli")]
-pub use cartomata_derive::Card;
-
-#[cfg(feature = "cli")]
+use crate::data::Card;
 use mlua::{IntoLua, Lua, Result as LuaResult, Value as LuaValue};
-use serde::de::DeserializeOwned;
-#[cfg(feature = "cli")]
 use serde::de::{self, Visitor};
-#[cfg(feature = "cli")]
 use serde::{Deserialize, Deserializer};
-#[cfg(feature = "cli")]
 use std::collections::HashMap;
-#[cfg(feature = "cli")]
 use std::fmt;
 
-pub trait Card: DeserializeOwned {
-    fn id(&self) -> String;
-}
-
-#[cfg(feature = "cli")]
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
@@ -29,10 +16,8 @@ pub enum Value {
     Nil,
 }
 
-#[cfg(feature = "cli")]
 struct ValueVisitor;
 
-#[cfg(feature = "cli")]
 impl<'de> Visitor<'de> for ValueVisitor {
     type Value = Value;
 
@@ -69,14 +54,12 @@ impl<'de> Visitor<'de> for ValueVisitor {
     }
 }
 
-#[cfg(feature = "cli")]
 impl<'de> Deserialize<'de> for Value {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Value, D::Error> {
         deserializer.deserialize_any(ValueVisitor)
     }
 }
 
-#[cfg(feature = "cli")]
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -89,7 +72,6 @@ impl fmt::Display for Value {
     }
 }
 
-#[cfg(feature = "cli")]
 impl<'lua> IntoLua<'lua> for Value {
     fn into_lua(self, lua: &'lua Lua) -> LuaResult<LuaValue<'lua>> {
         match self {
@@ -102,23 +84,50 @@ impl<'lua> IntoLua<'lua> for Value {
     }
 }
 
-#[cfg(feature = "cli")]
 #[derive(Debug, Clone)]
 pub struct DynCard(pub HashMap<String, Value>);
 
-#[cfg(feature = "cli")]
 impl Card for DynCard {
-    fn id(&self) -> String {
-        self.0
-            .get("id")
-            .map_or_else(String::new, |id| id.to_string())
+    fn get_int(&self, field: &str) -> Option<i64> {
+        match self.0.get(field) {
+            Some(Value::Int(x)) => Some(*x),
+            Some(Value::Float(x)) => Some(*x as i64),
+            Some(Value::Bool(x)) => Some(*x as i64),
+            Some(Value::String(x)) => x.parse::<i64>().ok(),
+            _ => None,
+        }
+    }
+
+    fn get_float(&self, field: &str) -> Option<f64> {
+        match self.0.get(field) {
+            Some(Value::Int(x)) => Some(*x as f64),
+            Some(Value::Float(x)) => Some(*x),
+            Some(Value::Bool(x)) => Some(if *x {1.0} else {0.0}),
+            Some(Value::String(x)) => x.parse::<f64>().ok(),
+            _ => None,
+        }
+    }
+
+    fn get_bool(&self, field: &str) -> Option<bool> {
+        match self.0.get(field) {
+            Some(Value::Int(x)) => Some(*x != 0),
+            Some(Value::Float(x)) => Some(*x != 0.0),
+            Some(Value::Bool(x)) => Some(*x),
+            Some(Value::String(x)) => x.parse::<bool>().ok(),
+            _ => None,
+        }
+    }
+
+    fn get_string(&self, field: &str) -> Option<String> {
+        match self.0.get(field) {
+            Some(v) => Some(v.to_string()),
+            _ => None,
+        }
     }
 }
 
-#[cfg(feature = "cli")]
 struct DynCardVisitor;
 
-#[cfg(feature = "cli")]
 impl<'de> Visitor<'de> for DynCardVisitor {
     type Value = DynCard;
 

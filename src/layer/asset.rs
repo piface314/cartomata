@@ -2,7 +2,7 @@
 
 use crate::error::Result;
 use crate::image::{BlendMode, FitMode, Origin, Stroke};
-use crate::layer::{Layer, LayerContext};
+use crate::layer::{Layer, RenderContext};
 
 use libvips::VipsImage;
 #[cfg(feature = "cli")]
@@ -34,8 +34,8 @@ pub struct AssetLayer {
 }
 
 impl Layer for AssetLayer {
-    fn render(&self, img: VipsImage, ctx: &mut LayerContext) -> Result<VipsImage> {
-        let path = ctx.template.asset_path(&self.path)?;
+    fn render(&self, img: VipsImage, ctx: &mut RenderContext) -> Result<VipsImage> {
+        let path = ctx.img_map.asset_path(&self.path);
         let key = &path.to_string_lossy();
         ctx.backend.cache(key)?;
         let asset = ctx.backend.get_cached(key)?;

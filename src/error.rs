@@ -1,5 +1,7 @@
 //! Common error types.
 
+use std::path::PathBuf;
+
 /// A shortcut type equivalent to `Result<T, ril::Error>`.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -7,8 +9,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     MissingSourceConfig(&'static str),
-    FailedOpenTemplate(String, String),
-    FailedOpenDataSource(String, String),
+    SourceInferError(PathBuf),
+    FailedOpenTemplate(PathBuf, String),
+    FailedOpenDataSource(PathBuf, String),
     FailedPrepDataSource(String),
     MissingVariable(&'static str),
     MissingIdField,
@@ -40,9 +43,10 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::MissingSourceConfig(e) => write!(f, "Missing {e} source configuration"),
-            Error::FailedOpenTemplate(path, e) => write!(f, "Failed to open template {path}:\n{e}"),
+            Error::SourceInferError(path) => write!(f, "Failed to infer source type for {}", path.display()),
+            Error::FailedOpenTemplate(path, e) => write!(f, "Failed to open template {}:\n{e}", path.display()),
             Error::FailedOpenDataSource(path, e) => {
-                write!(f, "Failed to open data source {path}:\n{e}")
+                write!(f, "Failed to open data source {}:\n{e}", path.display())
             }
             Error::FailedPrepDataSource(e) => write!(f, "Failed to prepare data source:\n{e}"),
             Error::MissingVariable(e) => write!(f, "Missing environment variable: {e}"),

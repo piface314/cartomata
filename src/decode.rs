@@ -1,7 +1,5 @@
 //! Implementations to decode card data into layers.
 
-#[cfg(feature = "cli")]
-pub mod dynamic;
 
 use crate::data::Card;
 use crate::error::Result;

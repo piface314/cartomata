@@ -1,19 +1,19 @@
 //! Implementation for the dynamic decoder, using Lua scripts.
 
-use crate::data::DynCard;
+use crate::cli::DynCard;
 use crate::decode::Decoder;
 use crate::error::{Error, Result};
 use crate::layer::{ArtworkLayer, AssetLayer, LabelLayer, TextLayer};
 use crate::layer::{Layer, LayerStack};
-use crate::template::Template;
 
 use mlua::{
     Error as LuaError, FromLua, Function, Lua, Result as LuaResult, Table, UserData,
     Value as LuaValue, Variadic,
 };
 use std::fs;
+use std::path::Path;
 
-pub struct DynamicDecoder<'lua> {
+pub struct LuaDecoder<'lua> {
     decode: Function<'lua>,
 }
 
@@ -26,10 +26,10 @@ macro_rules! register {
     }
 }
 
-impl<'lua> DynamicDecoder<'lua> {
-    pub fn new(lua: &'lua Lua, template: &Template) -> Result<Self> {
-        let req_path = template.folder()?;
-        let mut path = req_path.clone();
+impl<'lua> LuaDecoder<'lua> {
+    pub fn new(lua: &'lua Lua, folder: impl AsRef<Path>) -> Result<Self> {
+        let req_path = folder.as_ref();
+        let mut path = req_path.to_path_buf();
         path.push("decode.lua");
 
         let chunk = fs::read_to_string(&path)
@@ -117,7 +117,7 @@ impl<'lua> FromLua<'lua> for Box<dyn Layer> {
     }
 }
 
-impl<'lua> Decoder<DynCard> for DynamicDecoder<'lua> {
+impl<'lua> Decoder<DynCard> for LuaDecoder<'lua> {
     fn decode(&self, card: DynCard) -> Result<LayerStack> {
         let DynCard(card_data) = card;
         let layers: Variadic<Box<dyn Layer>> = self

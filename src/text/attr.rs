@@ -1,14 +1,13 @@
 //! Text attribute values and conversions.
 
 use crate::error::{Error, Result};
-use crate::image::{Color, ImgBackend, Origin};
+use crate::image::{Color, ImageMap, ImgBackend, Origin};
 use crate::text::FontMap;
 
 use libvips::VipsImage;
 use regex::Regex;
 #[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
@@ -286,14 +285,14 @@ impl ImgAttr {
     pub fn push_pango_attrs(
         self,
         ib: &mut ImgBackend,
-        prefix: Option<&PathBuf>,
+        im: &ImageMap,
         fm: &FontMap,
         ctx: &pango::Context,
         attrs: &mut pango::AttrList,
         i: u32,
         j: u32,
     ) -> Option<VipsImage> {
-        let fp = img_src_fp(prefix, self.src.as_ref()?);
+        let fp = im.asset_path(self.src.as_ref()?);
         let fp = &fp.to_string_lossy();
         ib.cache(fp).ok()?;
         let (cached_img, new_img) = open_img(ib, fp);
@@ -330,14 +329,14 @@ impl IconAttr {
     pub fn push_pango_attrs(
         &self,
         ib: &mut ImgBackend,
-        prefix: Option<&PathBuf>,
+        im: &ImageMap,
         fm: &FontMap,
         ctx: &pango::Context,
         attrs: &mut pango::AttrList,
         i: u32,
         j: u32,
     ) -> Option<VipsImage> {
-        let fp = img_src_fp(prefix, self.src.as_ref()?);
+        let fp = im.asset_path(self.src.as_ref()?);
         let fp = &fp.to_string_lossy();
         ib.cache(fp).ok()?;
         let (cached_img, new_img) = open_img(ib, fp);
@@ -349,12 +348,6 @@ impl IconAttr {
         push_img_rect(attrs, i, j, &img, &metrics);
         Some(img)
     }
-}
-
-fn img_src_fp(prefix: Option<&PathBuf>, src: &str) -> PathBuf {
-    let mut fp = prefix.cloned().unwrap_or_else(|| PathBuf::new());
-    fp.push(src);
-    fp
 }
 
 fn open_img<'i>(ib: &'i ImgBackend, src: &str) -> (Option<&'i VipsImage>, Option<VipsImage>) {

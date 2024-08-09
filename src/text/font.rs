@@ -1,19 +1,24 @@
 //! Management of font files and configuration
 
 use crate::error::{Error, Result};
-use crate::template::Template;
 
 use fontconfig::{Fontconfig, Pattern};
 use fontconfig_sys::fontconfig as sys;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{collections::HashMap, ffi::CString};
 
-pub struct FontMap<'f> {
-    fc: Fontconfig,
-    loaded: HashMap<&'f str, String>,
+#[derive(Debug, Clone)]
+pub enum FontPath {
+    Path(PathBuf),
+    Desc { name: String, style: Option<String> },
 }
 
-impl<'f> FontMap<'f> {
+pub struct FontMap {
+    fc: Fontconfig,
+    loaded: HashMap<String, String>,
+}
+
+impl FontMap {
     pub fn new() -> Result<Self> {
         Ok(Self {
             fc: fontconfig::Fontconfig::new().ok_or(Error::FontConfigInitError)?,
@@ -21,7 +26,7 @@ impl<'f> FontMap<'f> {
         })
     }
 
-    pub fn get(&'f self, key: &str) -> Option<&'f str> {
+    pub fn get(&self, key: &str) -> Option<&str> {
         self.loaded.get(key).map(|s| s.as_str())
     }
 
@@ -39,16 +44,13 @@ impl<'f> FontMap<'f> {
         self.get_desc_pt(key, size as f64 / pango::SCALE as f64)
     }
 
-    pub fn load_from_template(&mut self, template: &'f Template) -> Result<()> {
-        for (key, cfg) in template.fonts.iter() {
-            if let Some(fp) = &cfg.path {
-                let mut path = template.folder()?;
-                path.push(fp);
-                self.load_font_from_file(key, path)?;
-            } else if let Some(family) = &cfg.family {
-                self.load_font_from_name(key, &family, cfg.style.as_deref())?;
-            } else {
-                return Err(Error::FontUndefined(key.to_string()));
+    pub fn load(&mut self, fonts: HashMap<String, FontPath>) -> Result<()> {
+        for (key, cfg) in fonts.into_iter() {
+            match cfg {
+                FontPath::Desc { name, style } => {
+                    self.load_font_from_name(key, &name, style.as_ref().map(|s| s.as_str()))?
+                }
+                FontPath::Path(fp) => self.load_font_from_file(key, fp)?,
             };
         }
         Ok(())
@@ -56,7 +58,7 @@ impl<'f> FontMap<'f> {
 
     pub fn load_font_from_name(
         &mut self,
-        key: &'f str,
+        key: String,
         family: &str,
         style: Option<&str>,
     ) -> Result<()> {
@@ -76,13 +78,13 @@ impl<'f> FontMap<'f> {
         Ok(())
     }
 
-    pub fn load_font_from_file(&mut self, key: &'f str, fp: impl AsRef<Path>) -> Result<()> {
+    pub fn load_font_from_file(&mut self, key: String, fp: impl AsRef<Path>) -> Result<()> {
         let fp = fp.as_ref();
         let c_fp = CString::new(fp.to_string_lossy().to_string())
             .map_err(|_| Error::InvalidCString(fp.to_string_lossy().to_string()))?;
         let mut pat = self
             .load_pattern_from_file(&c_fp)
-            .ok_or_else(|| Error::LoadFontError(key.into()))?;
+            .ok_or_else(|| Error::LoadFontError(key.clone()))?;
 
         let status = unsafe {
             fontconfig_sys::fontconfig::FcConfigAppFontAddFile(

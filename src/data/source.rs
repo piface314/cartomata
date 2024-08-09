@@ -1,46 +1,25 @@
 //! Contains implementations for different data sources.
 
-pub mod csv;
-pub mod sqlite;
+#[cfg(feature = "csv")]
+mod csv;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 
+#[cfg(feature = "csv")]
 pub use csv::{CsvSource, CsvSourceConfig};
+#[cfg(feature = "sqlite")]
 pub use sqlite::{SqliteSource, SqliteSourceConfig};
 
-use crate::data::card::Card;
+use crate::data::Card;
 use crate::error::Result;
-use crate::template::Template;
-
-#[cfg(feature = "cli")]
-use clap::ValueEnum;
-use serde::Deserialize;
 
 pub trait DataSource<'a, C: Card> {
-    fn fetch(&mut self, ids: &Vec<String>) -> Vec<Result<C>>;
+    fn read(&mut self, ids: &Vec<String>) -> Vec<Result<C>>;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
-#[cfg_attr(feature = "cli", derive(ValueEnum))]
-#[serde(rename_all = "kebab-case")]
-pub enum DataSourceType {
-    /// CSV source
-    Csv,
-    /// SQLite source
-    Sqlite,
-}
+pub trait SourceMap {
+    type C: Card;
+    type K;
 
-impl DataSourceType {
-    pub fn open<'a, C: Card>(
-        &self,
-        template: &'a Template,
-        path: &impl AsRef<str>,
-    ) -> Result<Box<dyn DataSource<'a, C> + 'a>> {
-        match self {
-            DataSourceType::Csv => {
-                CsvSource::open(template, path).map(|s| Box::new(s) as Box<dyn DataSource<C>>)
-            }
-            DataSourceType::Sqlite => {
-                SqliteSource::open(template, path).map(|s| Box::new(s) as Box<dyn DataSource<C>>)
-            }
-        }
-    }
+    fn source<'s>(&'s self, key: &Self::K) -> Result<Box<dyn DataSource<'s, Self::C> + 's>>;
 }

@@ -2,12 +2,14 @@
 
 mod blend;
 mod color;
+mod map;
 mod origin;
 mod stroke;
 
 use crate::error::{Error, Result};
 pub use crate::image::blend::BlendMode;
 pub use crate::image::color::Color;
+pub use crate::image::map::{ImageMap, OutputMap};
 pub use crate::image::origin::{Origin, TextOrigin};
 pub use crate::image::stroke::Stroke;
 use crate::text::attr::{Gravity, ITagAttr, LayoutAttr, TagAttr};
@@ -19,7 +21,6 @@ use pango::prelude::FontMapExt;
 #[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 pub struct ImgBackend {
     vips_app: VipsApp,
@@ -50,7 +51,7 @@ impl ImgBackend {
         })
     }
 
-    fn err(&self, e: libvips::error::Error) -> Error {
+    pub fn err(&self, e: libvips::error::Error) -> Error {
         Error::VipsError(format!(
             "{e}\n{}",
             self.vips_app.error_buffer().expect("vips error buffer")
@@ -78,11 +79,10 @@ impl ImgBackend {
         }
     }
 
-    pub fn new_canvas(&self, bg: &Color, width: usize, height: usize) -> Result<VipsImage> {
+    pub fn new_canvas(&self, bg: &Color, width: i32, height: i32) -> Result<VipsImage> {
         let (r, g, b, a) = bg.scaled_rgba();
-        let img =
-            ops::black_with_opts(width as i32, height as i32, &ops::BlackOptions { bands: 4 })
-                .map_err(|e| self.err(e))?;
+        let img = ops::black_with_opts(width, height, &ops::BlackOptions { bands: 4 })
+            .map_err(|e| self.err(e))?;
         let img = VipsImage::new_from_image(&img, &[r, g, b, a]).map_err(|e| self.err(e))?;
         self.reinterpret(&img)
     }
@@ -280,7 +280,7 @@ impl ImgBackend {
     pub fn print(
         &mut self,
         markup: Markup,
-        prefix: Option<&PathBuf>,
+        im: &ImageMap,
         fm: &FontMap,
         font: &str,
         size: f64,
@@ -302,7 +302,7 @@ impl ImgBackend {
         let gravity = Gravity::from(ctx.gravity());
         let (attrs, text) =
             markup.parsed(font.to_string(), pango::SCALE * size as i32, color, gravity);
-        let (attr_list, images) = self.convert_attrs(prefix, fm, &ctx, attrs)?;
+        let (attr_list, images) = self.convert_attrs(im, fm, &ctx, attrs)?;
         layout.set_font_description(fm.get_desc_pt(font, size).as_ref());
         layout.set_attributes(Some(&attr_list));
         layout.set_text(&text);
@@ -345,7 +345,7 @@ impl ImgBackend {
 
     fn convert_attrs(
         &mut self,
-        prefix: Option<&PathBuf>,
+        im: &ImageMap,
         fm: &FontMap,
         ctx: &pango::Context,
         attrs: Vec<ITagAttr>,
@@ -360,7 +360,7 @@ impl ImgBackend {
                 TagAttr::Img(a) => {
                     let img = a.push_pango_attrs(
                         self,
-                        prefix,
+                        im,
                         fm,
                         ctx,
                         &mut attr_list,
@@ -372,7 +372,7 @@ impl ImgBackend {
                 TagAttr::Icon(a) => {
                     let img = a.push_pango_attrs(
                         self,
-                        prefix,
+                        im,
                         fm,
                         ctx,
                         &mut attr_list,
