@@ -18,8 +18,8 @@ pub struct AssetLayer {
     pub path: String,
     pub x: i32,
     pub y: i32,
-    pub w: Option<f64>,
-    pub h: Option<f64>,
+    pub w: Option<i32>,
+    pub h: Option<i32>,
     #[cfg_attr(feature = "cli", serde(default))]
     pub r: f64,
     #[cfg_attr(feature = "cli", serde(default))]

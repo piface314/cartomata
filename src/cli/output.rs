@@ -30,11 +30,7 @@ impl OutputMap for DynOutputMap {
     }
 
     fn write(&self, ib: &ImgBackend, img: &VipsImage, path: impl AsRef<Path>) -> Result<()> {
-        let img = ib.scale_to(
-            img,
-            self.width.map(|x| x as f64),
-            self.height.map(|x| x as f64),
-        )?;
+        let img = ib.scale_to(img, self.width, self.height)?;
         OutputMap::write(self, ib, &img, path)
     }
 }

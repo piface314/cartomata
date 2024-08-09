@@ -154,16 +154,16 @@ impl ImgBackend {
         .map_err(|e| self.err(e))
     }
 
-    pub fn scale_to(&self, img: &VipsImage, w: Option<f64>, h: Option<f64>) -> Result<VipsImage> {
+    pub fn scale_to(&self, img: &VipsImage, w: Option<i32>, h: Option<i32>) -> Result<VipsImage> {
         let (iw, ih) = (img.get_width() as f64, img.get_height() as f64);
         let (sx, sy) = match (w, h) {
-            (Some(rw), Some(rh)) => (rw / iw, rh / ih),
+            (Some(rw), Some(rh)) => (rw as f64 / iw, rh as f64 / ih),
             (Some(rw), None) => {
-                let s = rw / iw;
+                let s = rw as f64 / iw;
                 (s, s)
             }
             (None, Some(rh)) => {
-                let s = rh / ih;
+                let s = rh as f64 / ih;
                 (s, s)
             }
             (None, None) => (1.0, 1.0),
