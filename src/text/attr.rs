@@ -48,7 +48,7 @@ macro_rules! enum_attr {
     (
         $(#[$outer:meta])*
         $vis:vis enum $Attr:ident {
-            $( $k:literal => $Variant:ident($T:ty) ),*,
+            $( $k:literal => $Variant:ident($T:ty), )*
         }
     ) => {
         $(#[$outer])*
@@ -68,12 +68,14 @@ macro_rules! struct_attr {
     (
         $(#[$outer:meta])*
         $vis:vis struct $Attr:ident {
-            $( $k:literal => $Field:ident: $T:ty ),*
+            $( $k:literal => $Field:ident: $T:ty, )*
+            $( $EField:ident: $ET:ty, )*
         }
     ) => {
         $(#[$outer])*
         $vis struct $Attr {
             $( pub $Field: Option<$T>, )*
+            $( pub $EField: $ET, )*
         }
 
         impl $Attr {
@@ -236,7 +238,7 @@ struct_attr! {
         "font"    => font: String,
         "size"    => size: i32,
         "gravity" => gravity: Gravity,
-        "inherit" => inherit: bool
+        inherit: bool,
     }
 }
 
@@ -260,7 +262,7 @@ impl ImgAttr {
 
     pub fn new_inherit() -> Self {
         Self {
-            inherit: Some(true),
+            inherit: true,
             ..Self::default()
         }
     }
@@ -277,7 +279,7 @@ impl ImgAttr {
     ) -> Self {
         set_if_none!(self.font = font.to_string());
         set_if_none!(self.size = size);
-        set_if_none!(and self.inherit.unwrap_or(false); then self.color = color);
+        set_if_none!(and self.inherit; then self.color = color);
         set_if_none!(self.scale = Scale(scale));
         set_if_none!(self.alpha = alpha);
         set_if_none!(self.gravity = gravity);
