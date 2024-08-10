@@ -17,11 +17,11 @@ impl OutputMap for DynOutputMap {
     type C = DynCard;
 
     fn path(&self, card: &Self::C) -> PathBuf {
-        let re = Regex::new(r"\{[^}]+\}").unwrap();
+        let re = Regex::new(r"\{([^}]+)\}").unwrap();
         PathBuf::from(
             re.replace_all(self.pattern.as_str(), |captures: &regex::Captures| {
                 card.0
-                    .get(captures.get(0).unwrap().as_str())
+                    .get(captures.get(1).unwrap().as_str())
                     .map(|v| v.to_string())
                     .unwrap_or_default()
             })
@@ -31,6 +31,8 @@ impl OutputMap for DynOutputMap {
 
     fn write(&self, ib: &ImgBackend, img: &VipsImage, path: impl AsRef<Path>) -> Result<()> {
         let img = ib.scale_to(img, self.width, self.height)?;
-        OutputMap::write(self, ib, &img, path)
+        let fp = path.as_ref();
+        let fp = fp.to_string_lossy();
+        img.image_write_to_file(&fp).map_err(|e| ib.err(e))
     }
 }
