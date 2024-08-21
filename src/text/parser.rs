@@ -134,12 +134,13 @@ impl<'src> TextParser<'src> {
     fn next_token(&mut self) -> Result<Option<Token>> {
         let output = match self.lexer_context {
             LexerContext::Free => self.text_lexer.next().map(|r| {
-                r.map_err(|_| Error::TextScanError(format!("{:?}", self.text_lexer.slice())))
+                r.map_err(|_| Error::ScanError(format!("{:?}", self.text_lexer.slice())))
                     .map(|t| t.into())
             }),
-            LexerContext::Tag => self.tag_lexer.next().map(|r| {
-                r.map_err(|_| Error::TextScanError(format!("{:?}", self.tag_lexer.slice())))
-            }),
+            LexerContext::Tag => self
+                .tag_lexer
+                .next()
+                .map(|r| r.map_err(|_| Error::ScanError(format!("{:?}", self.tag_lexer.slice())))),
         };
         match output {
             Some(Ok(x)) => Ok(Some(x)),
@@ -165,6 +166,13 @@ impl<'src> TextParser<'src> {
         match self.lexer_context {
             LexerContext::Free => self.text_lexer.slice(),
             LexerContext::Tag => self.tag_lexer.slice(),
+        }
+    }
+
+    fn span(&self) -> std::ops::Range<usize> {
+        match self.lexer_context {
+            LexerContext::Free => self.text_lexer.span(),
+            LexerContext::Tag => self.tag_lexer.span(),
         }
     }
 
@@ -196,7 +204,7 @@ impl<'src> TextParser<'src> {
                         }
                         token = self.next_token()?;
                     } else {
-                        return Err(Error::TextUnexpected(x.to_string(), a.to_string()));
+                        return Err(self.syntax_error(&x.to_string()));
                     }
                 }
                 (Symbol::M, Some(Token::Text)) => {
@@ -257,30 +265,17 @@ impl<'src> TextParser<'src> {
                 (Symbol::A, Some(Token::TagSep)) => {
                     // A → ϵ
                 }
-                (symbol, Some(token)) => {
-                    return Err(Error::TextUnexpected(symbol.to_string(), token.to_string()))
-                }
-                (symbol, None) => {
-                    return Err(Error::TextUnexpected(
-                        symbol.to_string(),
-                        "end of input".to_string(),
-                    ))
-                }
+                (symbol, _) => return Err(self.syntax_error(&symbol.to_string())),
             }
         }
         match (stack.last(), token) {
-            (Some(symbol), Some(tk)) => {
-                Err(Error::TextUnexpected(symbol.to_string(), tk.to_string()))
-            }
-            (Some(symbol), None) => Err(Error::TextUnexpected(
-                symbol.to_string(),
-                "end of input".to_string(),
-            )),
-            (None, Some(tk)) => Err(Error::TextUnexpected(
-                "end of input".to_string(),
-                tk.to_string(),
-            )),
+            (Some(symbol), _) => Err(self.syntax_error(&symbol.to_string())),
+            (None, Some(_)) => Err(self.syntax_error("end of input")),
             (None, None) => Ok(elems.pop().unwrap()),
         }
+    }
+
+    fn syntax_error(&self, expected: &str) -> Error {
+        Error::syntax_error_expecting(expected, self.text_lexer.source(), self.span().start)
     }
 }

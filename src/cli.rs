@@ -9,8 +9,10 @@ mod source;
 pub use crate::cli::card::DynCard;
 use crate::cli::config::Config;
 pub use crate::cli::decode::LuaDecoder;
+use crate::cli::output::Resize;
 use crate::cli::source::SourceType;
 use crate::data::source::SourceMap;
+use crate::data::Predicate;
 use crate::decode::Decoder;
 use crate::image::{ImgBackend, OutputMap};
 use crate::layer::RenderContext;
@@ -38,9 +40,13 @@ pub struct Cli {
     #[arg(short, long)]
     pub output: PathBuf,
 
-    /// Optional ids to specify cards to be rendered
+    /// Optionally filters input data
+    #[arg(short, long)]
+    pub filter: Option<String>,
+
+    /// Optionally resizes output
     #[arg(long)]
-    pub ids: Vec<String>,
+    pub resize: Option<Resize>,
 
     /// If set, cards without artwork will be rendered with a placeholder
     #[arg(long)]
@@ -77,7 +83,7 @@ impl Cli {
 
         let cli = Self::parse();
         let (folder, config) = error!(Config::find(cli.template));
-        let (src_map, img_map, font_map, out_map) = error!(config.maps(&folder));
+        let (src_map, img_map, font_map, mut out_map) = error!(config.maps(&folder));
         let mut ib = error!(ImgBackend::new());
 
         let mut layer_ctx = RenderContext {
@@ -87,7 +93,16 @@ impl Cli {
         };
 
         let mut source = error!(src_map.source(&(cli.source, cli.input)));
-        let cards = source.read(&cli.ids);
+        let filter = if let Some(filter) = &cli.filter {
+            Some(error!(Predicate::from_string(filter)))
+        } else {
+            None
+        };
+        if let Some(resize) = cli.resize {
+            out_map.resize = resize;
+        }
+
+        let cards = source.read(filter.as_ref());
         let lua = Lua::new();
         let decoder = error!(LuaDecoder::new(&lua, &folder));
         for card_res in cards.into_iter() {

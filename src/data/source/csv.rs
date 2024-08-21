@@ -1,12 +1,10 @@
 //! Contains implementation for CSV as card data source.
 
-use crate::data::source::DataSource;
-use crate::data::Card;
+use crate::data::{Card, DataSource, Predicate};
 use crate::error::{Error, Result};
 
 use itertools::Itertools;
 use serde::Deserialize;
-use std::collections::HashSet;
 use std::path::Path;
 
 #[derive(Debug, Deserialize, Copy, Clone)]
@@ -51,23 +49,15 @@ impl<'a> CsvSource {
 }
 
 impl<'a, C: Card> DataSource<'a, C> for CsvSource {
-    fn read(&mut self, ids: &Vec<String>) -> Vec<Result<C>> {
+    fn read(&mut self, filter: Option<&Predicate>) -> Vec<Result<C>> {
         let iterator = self
             .reader
             .deserialize::<C>()
             .map(|r| r.map_err(|e| Error::FailedRecordRead(e.to_string())));
 
-        if ids.is_empty() {
-            iterator.collect()
-        } else {
-            let ids: HashSet<&str> = ids.iter().map(|id| id.as_str()).collect();
-            iterator
-                .filter_ok(|card| {
-                    card.get_string("id")
-                        .map(|id| ids.contains(id.as_str()))
-                        .unwrap_or(false)
-                })
-                .collect()
+        match filter {
+            Some(filter) => iterator.filter_ok(|card| filter.eval(card)).collect(),
+            None => iterator.collect()
         }
     }
 }

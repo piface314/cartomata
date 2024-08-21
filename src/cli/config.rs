@@ -1,6 +1,6 @@
 //! Configuration for dynamic templates.
 
-use crate::cli::output::DynOutputMap;
+use crate::cli::output::{DynOutputMap, Resize};
 use crate::cli::source::DynSourceMap;
 #[cfg(feature = "csv")]
 use crate::data::source::CsvSourceConfig;
@@ -137,8 +137,7 @@ impl Config {
         font_map.load(self.fonts)?;
 
         let out_map = DynOutputMap {
-            width: None,
-            height: None,
+            resize: Resize::default(),
             pattern: self.base.out_pattern,
         };
         Ok((src_map, img_map, font_map, out_map))

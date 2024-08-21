@@ -11,10 +11,11 @@ pub use csv::{CsvSource, CsvSourceConfig};
 pub use sqlite::{SqliteSource, SqliteSourceConfig};
 
 use crate::data::Card;
+use crate::data::Predicate;
 use crate::error::Result;
 
 pub trait DataSource<'a, C: Card> {
-    fn read(&mut self, ids: &Vec<String>) -> Vec<Result<C>>;
+    fn read(&mut self, filter: Option<&Predicate>) -> Vec<Result<C>>;
 }
 
 pub trait SourceMap {
