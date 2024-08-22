@@ -36,8 +36,8 @@ pub struct CsvSource {
     reader: csv::Reader<std::fs::File>,
 }
 
-impl<'a> CsvSource {
-    pub fn open(config: &CsvSourceConfig, path: &impl AsRef<Path>) -> Result<CsvSource> {
+impl CsvSource {
+    pub fn open(config: CsvSourceConfig, path: &impl AsRef<Path>) -> Result<CsvSource> {
         let path = path.as_ref();
         let reader = csv::ReaderBuilder::new()
             .delimiter(config.delimiter as u8)
@@ -48,7 +48,7 @@ impl<'a> CsvSource {
     }
 }
 
-impl<'a, C: Card> DataSource<'a, C> for CsvSource {
+impl<C: Card> DataSource<C> for CsvSource {
     fn read(&mut self, filter: Option<&Predicate>) -> Vec<Result<C>> {
         let iterator = self
             .reader

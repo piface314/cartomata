@@ -1,11 +1,12 @@
 //! Configuration for dynamic templates.
 
+use crate::cli::card::DynCard;
 use crate::cli::output::{DynOutputMap, Resize};
-use crate::cli::source::DynSourceMap;
 #[cfg(feature = "csv")]
 use crate::data::source::CsvSourceConfig;
 #[cfg(feature = "sqlite")]
 use crate::data::source::SqliteSourceConfig;
+use crate::data::SourceMap;
 use crate::error::{Error, Result};
 use crate::image::{Color, ImageMap};
 use crate::text::{FontMap, FontPath};
@@ -113,13 +114,19 @@ impl Config {
         ))
     }
 
-    pub fn maps(self, folder: &PathBuf) -> Result<(DynSourceMap, ImageMap, FontMap, DynOutputMap)> {
+    pub fn maps(
+        self,
+        folder: &PathBuf,
+    ) -> Result<(SourceMap<DynCard>, ImageMap, FontMap, DynOutputMap)> {
         let assets_folder = self.assets_folder(folder);
 
-        let src_map = DynSourceMap {
-            csv: self.source.csv,
-            sqlite: self.source.sqlite,
-        };
+        let mut src_map = SourceMap::new();
+
+        #[cfg(feature = "csv")]
+        src_map.with_csv(self.source.csv);
+
+        #[cfg(feature = "sqlite")]
+        src_map.with_sqlite(self.source.sqlite);
 
         let img_map = ImageMap {
             artwork_folder: self
@@ -208,7 +215,12 @@ impl<'de> Visitor<'de> for FontPathVisitor {
                 "style" => {
                     style = Some(map.next_value::<String>()?);
                 }
-                _ => return Err(de::Error::unknown_field(key.as_str(), &["path", "name", "style"])),
+                _ => {
+                    return Err(de::Error::unknown_field(
+                        key.as_str(),
+                        &["path", "name", "style"],
+                    ))
+                }
             }
         }
         if let Some(name) = name {

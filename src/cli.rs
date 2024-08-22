@@ -10,9 +10,7 @@ pub use crate::cli::card::DynCard;
 use crate::cli::config::Config;
 pub use crate::cli::decode::LuaDecoder;
 use crate::cli::output::Resize;
-use crate::cli::source::SourceType;
-use crate::data::source::SourceMap;
-use crate::data::Predicate;
+use crate::data::{Predicate, SourceMap, SourceType};
 use crate::decode::Decoder;
 use crate::image::{ImgBackend, OutputMap};
 use crate::layer::RenderContext;
@@ -92,7 +90,7 @@ impl Cli {
             img_map: &img_map,
         };
 
-        let mut source = error!(src_map.source(&(cli.source, cli.input)));
+        let mut source = error!(src_map.select(cli.source, cli.input));
         let filter = if let Some(filter) = &cli.filter {
             Some(error!(Predicate::from_string(filter)))
         } else {

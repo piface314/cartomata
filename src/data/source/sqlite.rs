@@ -19,35 +19,36 @@ pub struct SqliteSourceConfig {
     pub with_predicate: Option<String>,
 }
 
-pub struct SqliteSource<'a> {
-    query: &'a str,
-    with_predicate: Option<&'a str>,
+pub struct SqliteSource {
+    query: String,
+    with_predicate: Option<String>,
     connection: Connection,
 }
 
-impl<'a> SqliteSource<'a> {
+impl SqliteSource {
     pub fn open(
-        config: &'a SqliteSourceConfig,
+        config: SqliteSourceConfig,
         path: &impl AsRef<Path>,
-    ) -> Result<SqliteSource<'a>> {
+    ) -> Result<SqliteSource> {
         let path = path.as_ref();
         let connection = Connection::open(path)
             .map_err(|e| Error::FailedOpenDataSource(path.to_path_buf(), e.to_string()))?;
         Ok(Self {
-            query: config.query.as_str(),
-            with_predicate: config.with_predicate.as_ref().map(String::as_str),
+            query: config.query,
+            with_predicate: config.with_predicate,
             connection,
         })
     }
 }
 
-impl<'a, C: Card> DataSource<'a, C> for SqliteSource<'a> {
+impl<C: Card> DataSource<C> for SqliteSource {
     fn read(&mut self, filter: Option<&Predicate>) -> Vec<Result<C>> {
         let stmt_result = match filter {
             Some(filter) => match filter.where_clause() {
                 Ok((clause, vars)) => {
                     let query = self
                         .with_predicate
+                        .as_ref()
                         .map(|q| q.replacen("WHERE ?", &clause, 1))
                         .unwrap_or_else(|| {
                             let mut query = self.query.to_string();
@@ -64,7 +65,7 @@ impl<'a, C: Card> DataSource<'a, C> for SqliteSource<'a> {
             },
             None => self
                 .connection
-                .prepare(self.query)
+                .prepare(&self.query)
                 .map_err(|e| Error::FailedPrepDataSource(e.to_string()))
                 .map(|stmt| (stmt, Vec::new())),
         };
