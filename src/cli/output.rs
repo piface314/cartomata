@@ -12,31 +12,30 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 pub struct DynOutputMap {
+    pub prefix: Option<PathBuf>,
     pub resize: Resize,
     pub pattern: String,
 }
 
-impl OutputMap for DynOutputMap {
-    type C = DynCard;
-
-    fn path(&self, card: &Self::C) -> PathBuf {
+impl OutputMap<DynCard> for DynOutputMap {
+    fn path(&self, card: &DynCard) -> PathBuf {
         let re = Regex::new(r"\{([^}]+)\}").unwrap();
-        PathBuf::from(
+        let suffix = 
             re.replace_all(self.pattern.as_str(), |captures: &regex::Captures| {
                 card.0
                     .get(captures.get(1).unwrap().as_str())
                     .map(|v| v.to_string())
                     .unwrap_or_default()
             })
-            .to_string(),
-        )
+            .to_string();
+        let mut path = self.prefix.as_ref().map(|p| p.clone()).unwrap_or_else(PathBuf::new);
+        path.push(suffix);
+        path
     }
 
     fn write(&self, ib: &ImgBackend, img: &VipsImage, path: impl AsRef<Path>) -> Result<()> {
         let img = ib.scale_to(img, self.resize.width, self.resize.height)?;
-        let fp = path.as_ref();
-        let fp = fp.to_string_lossy();
-        img.image_write_to_file(&fp).map_err(|e| ib.err(e))
+        ib.write(&img, path)
     }
 }
 

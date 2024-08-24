@@ -45,12 +45,9 @@ impl ImageMap {
     }
 }
 
-pub trait OutputMap {
-    type C: Card;
-    fn path(&self, card: &Self::C) -> PathBuf;
+pub trait OutputMap<C: Card> {
+    fn path(&self, card: &C) -> PathBuf;
     fn write(&self, ib: &ImgBackend, img: &VipsImage, path: impl AsRef<Path>) -> Result<()> {
-        let fp = path.as_ref();
-        let fp = fp.to_string_lossy();
-        img.image_write_to_file(&fp).map_err(|e| ib.err(e))
+        ib.write(img, path)
     }
 }

@@ -21,6 +21,7 @@ use pango::prelude::FontMapExt;
 #[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 
 pub struct ImgBackend {
     vips_app: VipsApp,
@@ -51,7 +52,7 @@ impl ImgBackend {
         })
     }
 
-    pub fn err(&self, e: libvips::error::Error) -> Error {
+    fn err(&self, e: libvips::error::Error) -> Error {
         Error::VipsError(format!(
             "{e}\n{}",
             self.vips_app.error_buffer().expect("vips error buffer")
@@ -79,7 +80,7 @@ impl ImgBackend {
         }
     }
 
-    pub fn new_canvas(&self, bg: &Color, width: i32, height: i32) -> Result<VipsImage> {
+    pub fn create(&self, bg: &Color, width: i32, height: i32) -> Result<VipsImage> {
         let (r, g, b, a) = bg.scaled_rgba();
         let img = ops::black_with_opts(width, height, &ops::BlackOptions { bands: 4 })
             .map_err(|e| self.err(e))?;
@@ -372,5 +373,10 @@ impl ImgBackend {
             }
         }
         Ok((attr_list, images))
+    }
+
+    pub fn write(&self, img: &VipsImage, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref().to_string_lossy();
+        img.image_write_to_file(&path).map_err(|e| self.err(e))
     }
 }

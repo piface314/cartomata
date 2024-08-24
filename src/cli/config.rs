@@ -78,11 +78,16 @@ pub struct DataSourceConfig {
 }
 
 impl Config {
-    pub fn find(name: impl AsRef<str>) -> Result<(PathBuf, Self)> {
-        let name = name.as_ref();
-        let mut path = Self::config_folder()?;
-        path.push(name);
-        path.push("template.toml");
+    pub fn find(name: Option<&str>) -> Result<(PathBuf, Self)> {
+        let path = match name {
+            Some(name) => {
+                let mut path = Self::config_folder()?;
+                path.push(name);
+                path.push("template.toml");
+                path
+            }
+            None => PathBuf::from("./template.toml"),
+        };
         Self::open(&path)
     }
 
@@ -143,6 +148,7 @@ impl Config {
         font_map.load(self.fonts)?;
 
         let out_map = DynOutputMap {
+            prefix: None,
             resize: Resize::default(),
             pattern: self.base.out_pattern,
         };

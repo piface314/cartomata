@@ -9,6 +9,7 @@ pub mod decode;
 pub mod error;
 pub mod image;
 pub mod layer;
+pub mod pipeline;
 pub mod text;
 
 pub use error::{Error, Result};

@@ -35,7 +35,7 @@ impl<'a> LayerStack<'a> {
         let bg = ctx.img_map.background;
         let (w, h) = ctx.img_map.card_size;
 
-        let mut img = ctx.backend.new_canvas(&bg, w, h)?;
+        let mut img = ctx.backend.create(&bg, w, h)?;
 
         let LayerStack(layers) = self;
         for layer in layers.into_iter() {
