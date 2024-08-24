@@ -1,6 +1,5 @@
 //! Configuration for dynamic templates.
 
-use crate::cli::card::DynCard;
 use crate::cli::output::{DynOutputMap, Resize};
 #[cfg(feature = "csv")]
 use crate::data::source::CsvSourceConfig;
@@ -117,7 +116,7 @@ impl Config {
     pub fn maps(
         self,
         folder: &PathBuf,
-    ) -> Result<(SourceMap<DynCard>, ImageMap, FontMap, DynOutputMap)> {
+    ) -> Result<(SourceMap, ImageMap, FontMap, DynOutputMap)> {
         let assets_folder = self.assets_folder(folder);
 
         let mut src_map = SourceMap::new();

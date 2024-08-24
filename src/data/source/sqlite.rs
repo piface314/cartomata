@@ -6,9 +6,9 @@ use crate::error::{Error, Result};
 
 use itertools::Itertools;
 use rusqlite::types::{ToSqlOutput, Value as SqlValue, ValueRef as SqlValueRef};
-use rusqlite::{params_from_iter, Connection};
+use rusqlite::{params_from_iter, Connection, Statement};
 use serde::Deserialize;
-use serde_rusqlite::from_rows;
+use serde_rusqlite::{from_rows, DeserRows};
 use std::fmt::Write;
 use std::path::Path;
 
@@ -26,10 +26,7 @@ pub struct SqliteSource {
 }
 
 impl SqliteSource {
-    pub fn open(
-        config: SqliteSourceConfig,
-        path: &impl AsRef<Path>,
-    ) -> Result<SqliteSource> {
+    pub fn open(config: SqliteSourceConfig, path: impl AsRef<Path>) -> Result<SqliteSource> {
         let path = path.as_ref();
         let connection = Connection::open(path)
             .map_err(|e| Error::FailedOpenDataSource(path.to_path_buf(), e.to_string()))?;
@@ -41,51 +38,96 @@ impl SqliteSource {
     }
 }
 
-impl<C: Card> DataSource<C> for SqliteSource {
-    fn read(&mut self, filter: Option<&Predicate>) -> Vec<Result<C>> {
-        let stmt_result = match filter {
-            Some(filter) => match filter.where_clause() {
-                Ok((clause, vars)) => {
-                    let query = self
-                        .with_predicate
-                        .as_ref()
-                        .map(|q| q.replacen("WHERE ?", &clause, 1))
-                        .unwrap_or_else(|| {
-                            let mut query = self.query.to_string();
-                            query.push(' ');
-                            query.push_str(&clause);
-                            query
-                        });
-                    self.connection
-                        .prepare(&query)
-                        .map_err(|e| Error::FailedPrepDataSource(e.to_string()))
-                        .map(|stmt| (stmt, vars))
-                }
-                Err(e) => Err(e),
-            },
+impl<'s, C: Card> DataSource<C> for SqliteSource {
+    fn read(
+        &mut self,
+        filter: Option<Predicate>,
+    ) -> Result<Box<dyn Iterator<Item = Result<C>> + '_>> {
+        let (stmt, vars) = match &filter {
+            Some(filter) => {
+                let (clause, vars) = filter.where_clause()?;
+                let query = self
+                    .with_predicate
+                    .as_ref()
+                    .map(|q| q.replacen("WHERE ?", &clause, 1))
+                    .unwrap_or_else(|| {
+                        let mut query = self.query.to_string();
+                        query.push(' ');
+                        query.push_str(&clause);
+                        query
+                    });
+                self.connection
+                    .prepare(&query)
+                    .map_err(|e| Error::FailedPrepDataSource(e.to_string()))
+                    .map(|stmt| (stmt, vars))?
+            }
             None => self
                 .connection
                 .prepare(&self.query)
                 .map_err(|e| Error::FailedPrepDataSource(e.to_string()))
-                .map(|stmt| (stmt, Vec::new())),
+                .map(|stmt| (stmt, Vec::new()))?,
         };
 
-        if let Err(e) = stmt_result {
-            return vec![Err(e)];
+        let mut stmt = AliasBox::new(stmt);
+        let rows = from_rows::<C>(
+            stmt.query(params_from_iter(vars.iter()))
+                .map_err(|e| Error::FailedPrepDataSource(e.to_string()))?,
+        );
+        let rows = unsafe { std::mem::transmute(rows) };
+        Ok(Box::new(SqliteIterator { rows, _stmt: stmt }))
+    }
+}
+
+
+struct SqliteIterator<'c, C: Card> {
+    // actually has lifetime of `stmt``
+    rows: DeserRows<'static, C>,
+    // SAFETY: we must never move out of this box as long as `rows` is alive
+    _stmt: AliasBox<Statement<'c>>,
+}
+
+struct AliasBox<T> {
+    ptr: *const T,
+}
+
+impl<T> AliasBox<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            ptr: Box::into_raw(Box::new(value)),
         }
+    }
 
-        let (mut stmt, vars) = stmt_result.unwrap();
-        let query_result = stmt
-            .query(params_from_iter(vars.iter()))
-            .map_err(|e| Error::FailedPrepDataSource(e.to_string()));
+    pub fn as_ptr(&self) -> *mut T {
+        self.ptr as *mut T
+    }
+}
 
-        if let Err(e) = query_result {
-            return vec![Err(e)];
+impl<T> std::ops::Deref for AliasBox<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        unsafe { &*self.ptr }
+    }
+}
+impl<T> std::ops::DerefMut for AliasBox<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.as_ptr() }
+    }
+}
+
+impl<T> Drop for AliasBox<T> {
+    fn drop(&mut self) {
+        unsafe {
+            drop(Box::from_raw(self.ptr as *mut T));
         }
+    }
+}
 
-        from_rows::<C>(query_result.unwrap())
+impl<'c, C: Card> Iterator for SqliteIterator<'c, C> {
+    type Item = Result<C>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.rows
+            .next()
             .map(|r| r.map_err(|e| Error::FailedRecordRead(e.to_string())))
-            .collect()
     }
 }
 
@@ -148,7 +190,10 @@ impl Predicate {
             }
             Self::In(col, SetValue::StrSet(vs)) => {
                 write!(buf, "{} IN ({})", esc_col(col), repeat_vars(vs.len()))?;
-                vars.extend(vs.iter().map(|v| ToSqlOutput::Borrowed(SqlValueRef::Text(v.as_bytes()))));
+                vars.extend(
+                    vs.iter()
+                        .map(|v| ToSqlOutput::Borrowed(SqlValueRef::Text(v.as_bytes()))),
+                );
             }
             Self::Like(col, v) => {
                 write!(buf, "{} LIKE ?", esc_col(col))?;

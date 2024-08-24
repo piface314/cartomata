@@ -15,11 +15,13 @@ use crate::error::{Error, Result};
 
 #[cfg(feature = "cli")]
 use clap::ValueEnum;
-use std::marker::PhantomData;
 use std::path::PathBuf;
 
 pub trait DataSource<C: Card> {
-    fn read(&mut self, filter: Option<&Predicate>) -> Vec<Result<C>>;
+    fn read(
+        &mut self,
+        filter: Option<Predicate>,
+    ) -> Result<Box<dyn Iterator<Item = Result<C>> + '_>>;
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -31,22 +33,20 @@ pub enum SourceType {
     Sqlite,
 }
 
-pub struct SourceMap<C: Card> {
+pub struct SourceMap {
     #[cfg(feature = "csv")]
-    pub csv: Option<CsvSourceConfig>,
+    csv: Option<CsvSourceConfig>,
     #[cfg(feature = "sqlite")]
-    pub sqlite: Option<SqliteSourceConfig>,
-    card_type: PhantomData<C>,
+    sqlite: Option<SqliteSourceConfig>,
 }
 
-impl<C: Card> SourceMap<C> {
+impl SourceMap {
     pub fn new() -> Self {
         Self {
             #[cfg(feature = "csv")]
             csv: None,
             #[cfg(feature = "sqlite")]
             sqlite: None,
-            card_type: PhantomData,
         }
     }
 
@@ -71,7 +71,7 @@ impl<C: Card> SourceMap<C> {
         }
     }
 
-    pub fn select(
+    pub fn select<C: Card>(
         self,
         src_type: Option<SourceType>,
         path: PathBuf,
@@ -83,14 +83,14 @@ impl<C: Card> SourceMap<C> {
             #[cfg(feature = "csv")]
             SourceType::Csv => {
                 let config = self.csv.unwrap_or_default();
-                CsvSource::open(config, &path).map(|s| Box::new(s) as Box<dyn DataSource<C>>)
+                let source = CsvSource::open(config, &path)?;
+                Ok(Box::new(source) as Box<dyn DataSource<C>>)
             }
             #[cfg(feature = "sqlite")]
             SourceType::Sqlite => {
-                let config = self
-                    .sqlite
-                    .ok_or(Error::MissingSourceConfig("sqlite"))?;
-                SqliteSource::open(config, &path).map(|s| Box::new(s) as Box<dyn DataSource<C>>)
+                let config = self.sqlite.ok_or(Error::MissingSourceConfig("sqlite"))?;
+                let source = SqliteSource::open(config, &path)?;
+                Ok(Box::new(source) as Box<dyn DataSource<C>>)
             }
         }
     }

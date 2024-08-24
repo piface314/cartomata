@@ -49,15 +49,18 @@ impl CsvSource {
 }
 
 impl<C: Card> DataSource<C> for CsvSource {
-    fn read(&mut self, filter: Option<&Predicate>) -> Vec<Result<C>> {
+    fn read(
+        &mut self,
+        filter: Option<Predicate>,
+    ) -> Result<Box<dyn Iterator<Item = Result<C>> + '_>> {
         let iterator = self
             .reader
             .deserialize::<C>()
             .map(|r| r.map_err(|e| Error::FailedRecordRead(e.to_string())));
 
         match filter {
-            Some(filter) => iterator.filter_ok(|card| filter.eval(card)).collect(),
-            None => iterator.collect()
+            Some(filter) => Ok(Box::new(iterator.filter_ok(move |card| filter.eval(card)))),
+            None => Ok(Box::new(iterator)),
         }
     }
 }

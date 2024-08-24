@@ -1,16 +1,14 @@
 //! CLI implementation.
-
 mod card;
 mod config;
 mod decode;
 mod output;
-mod source;
 
 pub use crate::cli::card::DynCard;
 use crate::cli::config::Config;
 pub use crate::cli::decode::LuaDecoder;
 use crate::cli::output::Resize;
-use crate::data::{Predicate, SourceMap, SourceType};
+use crate::data::{Predicate, SourceType};
 use crate::decode::Decoder;
 use crate::image::{ImgBackend, OutputMap};
 use crate::layer::RenderContext;
@@ -100,10 +98,9 @@ impl Cli {
             out_map.resize = resize;
         }
 
-        let cards = source.read(filter.as_ref());
         let lua = Lua::new();
         let decoder = error!(LuaDecoder::new(&lua, &folder));
-        for card_res in cards.into_iter() {
+        for card_res in error!(source.read(filter)) {
             let card = warn!(card_res);
             let out_path = out_map.path(&card);
             let stack = warn!(decoder.decode(card));

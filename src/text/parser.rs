@@ -142,11 +142,7 @@ impl<'src> TextParser<'src> {
                 .next()
                 .map(|r| r.map_err(|_| Error::ScanError(format!("{:?}", self.tag_lexer.slice())))),
         };
-        match output {
-            Some(Ok(x)) => Ok(Some(x)),
-            Some(Err(e)) => Err(e),
-            None => Ok(None),
-        }
+        output.transpose()
     }
 
     fn set_context(&mut self, context: LexerContext) {
