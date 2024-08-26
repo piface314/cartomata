@@ -12,27 +12,26 @@ use cartomata_derive::LuaLayer;
 use libvips::VipsImage;
 #[cfg(feature = "cli")]
 use mlua::LuaSerdeExt;
-#[cfg(feature = "cli")]
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "cli", derive(Serialize, Deserialize, LuaLayer))]
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "cli", derive(LuaLayer))]
 pub struct LabelLayer {
     pub text: String,
     pub x: i32,
     pub y: i32,
     pub size: f64,
     pub font: Option<String>,
-    #[cfg_attr(feature = "cli", serde(default = "default_color"))]
+    #[serde(default = "default_color")]
     pub color: Color,
     pub w: Option<i32>,
-    #[cfg_attr(feature = "cli", serde(default))]
+    #[serde(default)]
     pub r: f64,
-    #[cfg_attr(feature = "cli", serde(default))]
+    #[serde(default)]
     pub ox: Origin,
-    #[cfg_attr(feature = "cli", serde(default = "default_text_origin"))]
+    #[serde(default = "default_text_origin")]
     pub oy: TextOrigin,
-    #[cfg_attr(feature = "cli", serde(default))]
+    #[serde(default)]
     pub blend: BlendMode,
     pub stroke: Option<Stroke>,
     pub auto_dir: Option<bool>,
@@ -83,31 +82,26 @@ impl LabelLayer {
 }
 
 impl Layer for LabelLayer {
-    fn render(&self, img: VipsImage, ctx: &mut RenderContext) -> Result<VipsImage> {
+    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage> {
+        let img_map = ctx.img_map;
+        let font_map = ctx.font_map;
+        let ib = ctx.backend;
+
         let markup = Markup::from_string(&self.text)?;
         let font = self.font.as_ref().map(|x| x.as_str()).unwrap_or("default");
         let params = self.layout_params();
-        let (text_img, layout) = ctx.backend.print(
-            markup,
-            ctx.img_map,
-            ctx.font_map,
-            font,
-            self.size,
-            self.color,
-            &params,
+        let (text_img, layout) = ib.print(
+            markup, &img_map, &font_map, font, self.size, self.color, &params,
         )?;
-        let text_img = self.resize(&ctx.backend, text_img)?;
+        let text_img = self.resize(&ib, text_img)?;
         let (text_img, dh) = if let Some(stroke) = self.stroke {
-            (ctx.backend.stroke(&text_img, stroke)?, stroke.size)
+            (ib.stroke(&text_img, stroke)?, stroke.size)
         } else {
             (text_img, 0)
         };
         let h = layout.baseline() + dh;
-        let (text_img, ox, oy) =
-            ctx.backend
-                .rotate(&text_img, self.r, self.ox, self.oy.into_origin(h))?;
+        let (text_img, ox, oy) = ib.rotate(&text_img, self.r, self.ox, self.oy.into_origin(h))?;
         let (ox, oy) = (Origin::Absolute(ox), Origin::Absolute(oy));
-        ctx.backend
-            .overlay(&img, &text_img, self.x, self.y, ox, oy, self.blend)
+        ib.overlay(&img, &text_img, self.x, self.y, ox, oy, self.blend)
     }
 }

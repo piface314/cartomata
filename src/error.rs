@@ -39,6 +39,11 @@ pub enum Error {
         expected: Option<String>,
     },
     InvalidOperand(String, String, String),
+    ReadLockError(&'static str, String),
+    WriteLockError(&'static str, String),
+    MutexLockError(&'static str, String),
+    SendError(usize, String),
+    JoinError(usize),
 }
 
 impl std::error::Error for Error {}
@@ -91,6 +96,17 @@ impl std::fmt::Display for Error {
             Error::InvalidOperand(op, exp, got) => {
                 write!(f, "invalid operand for {op}: expected {exp}, got {got}")
             }
+            Error::ReadLockError(var, e) => {
+                write!(f, "failed to acquire read lock for {var}:\n{e}")
+            }
+            Error::WriteLockError(var, e) => {
+                write!(f, "failed to acquire write lock for {var}:\n{e}")
+            }
+            Error::MutexLockError(var, e) => write!(f, "failed to acquire lock for {var}:\n{e}"),
+            Error::SendError(id, e) => {
+                write!(f, "failed to send message from thread {id:02}:\n{e}")
+            }
+            Error::JoinError(id) => write!(f, "failed to join thread {id:02}"),
         }
     }
 }

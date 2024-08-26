@@ -17,21 +17,21 @@ use crate::text::FontMap;
 use core::fmt::Debug;
 use libvips::VipsImage;
 
+#[derive(Clone)]
 pub struct RenderContext<'a> {
-    pub backend: &'a mut ImgBackend,
+    pub backend: &'a ImgBackend,
     pub font_map: &'a FontMap,
     pub img_map: &'a ImageMap,
 }
-
 pub trait Layer: Debug {
-    fn render(&self, img: VipsImage, ctx: &mut RenderContext) -> Result<VipsImage>;
+    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage>;
 }
 
 #[derive(Debug)]
 pub struct LayerStack<'a>(pub Vec<Box<dyn Layer + 'a>>);
 
 impl<'a> LayerStack<'a> {
-    pub fn render(self, ctx: &mut RenderContext) -> Result<VipsImage> {
+    pub fn render(self, ctx: &RenderContext) -> Result<VipsImage> {
         let bg = ctx.img_map.background;
         let (w, h) = ctx.img_map.card_size;
 

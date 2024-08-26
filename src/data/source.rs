@@ -15,7 +15,7 @@ use crate::error::{Error, Result};
 
 #[cfg(feature = "cli")]
 use clap::ValueEnum;
-use std::path::PathBuf;
+use std::path::Path;
 
 pub trait DataSource<C: Card> {
     fn read(
@@ -60,8 +60,8 @@ impl SourceMap {
         self.sqlite = cfg;
     }
 
-    fn infer_source_type(path: &PathBuf) -> Option<SourceType> {
-        let ext = path.extension()?.to_str()?;
+    fn infer_source_type(path: impl AsRef<Path>) -> Option<SourceType> {
+        let ext = path.as_ref().extension()?.to_str()?;
         match ext {
             #[cfg(feature = "csv")]
             "csv" | "tsv" => Some(SourceType::Csv),
@@ -74,11 +74,12 @@ impl SourceMap {
     pub fn select<C: Card>(
         self,
         src_type: Option<SourceType>,
-        path: PathBuf,
+        path: impl AsRef<Path>,
     ) -> Result<Box<dyn DataSource<C>>> {
+        let path = path.as_ref();
         let src_type = src_type
-            .or_else(|| Self::infer_source_type(&path))
-            .ok_or_else(|| Error::SourceInferError(path.clone()))?;
+            .or_else(|| Self::infer_source_type(path))
+            .ok_or_else(|| Error::SourceInferError(path.to_path_buf()))?;
         match src_type {
             #[cfg(feature = "csv")]
             SourceType::Csv => {

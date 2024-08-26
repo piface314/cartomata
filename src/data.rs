@@ -10,6 +10,6 @@ pub use crate::data::value::Value;
 
 use serde::de::DeserializeOwned;
 
-pub trait Card: DeserializeOwned + 'static {
+pub trait Card: DeserializeOwned + Sync + Send + 'static {
     fn get(&self, field: &str) -> Value;
 }

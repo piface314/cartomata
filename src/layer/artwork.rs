@@ -9,11 +9,10 @@ use cartomata_derive::LuaLayer;
 use libvips::VipsImage;
 #[cfg(feature = "cli")]
 use mlua::LuaSerdeExt;
-#[cfg(feature = "cli")]
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "cli", derive(Deserialize, Serialize, LuaLayer))]
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "cli", derive(LuaLayer))]
 pub struct ArtworkLayer {
     pub id: String,
     pub x: i32,
@@ -38,21 +37,22 @@ fn default_origin() -> Origin {
 }
 
 impl Layer for ArtworkLayer {
-    fn render(&self, img: VipsImage, ctx: &mut RenderContext) -> Result<VipsImage> {
-        let path = ctx.img_map.artwork_path(&self.id)?;
-        let artwork = ctx.backend.open(path.to_string_lossy())?;
-        let artwork = ctx
-            .backend
-            .scale_to_fit(&artwork, self.w, self.h, self.fit)?;
+    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage> {
+        let img_map = ctx.img_map;
+        let ib = ctx.backend;
+
+        let path = img_map.artwork_path(&self.id)?;
+        let artwork = ib.open(path.to_string_lossy())?;
+        let artwork = ib.scale_to_fit(&artwork, self.w, self.h, self.fit)?;
         let artwork = if let Some(stroke) = self.stroke {
-            ctx.backend.stroke(&artwork, stroke)?
+            ib.stroke(&artwork, stroke)?
         } else {
             artwork
         };
-        let (artwork, dx, dy) = ctx.backend.rotate(&artwork, self.r, self.ox, self.oy)?;
+        let (artwork, dx, dy) = ib.rotate(&artwork, self.r, self.ox, self.oy)?;
         let ox = Origin::Absolute(-self.ox.apply(self.w));
         let oy = Origin::Absolute(-self.oy.apply(self.h));
-        ctx.backend.overlay(
+        ib.overlay(
             &img,
             &artwork,
             self.x - dx as i32,

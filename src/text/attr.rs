@@ -288,7 +288,7 @@ impl ImgAttr {
 
     pub fn push_pango_attrs(
         &self,
-        ib: &mut ImgBackend,
+        ib: &ImgBackend,
         im: &ImageMap,
         fm: &FontMap,
         ctx: &pango::Context,
@@ -298,26 +298,14 @@ impl ImgAttr {
     ) -> Option<VipsImage> {
         let fp = im.asset_path(self.src.as_ref()?);
         let fp = &fp.to_string_lossy();
-        ib.cache(fp).ok()?;
-        let (cached_img, new_img) = open_img(ib, fp);
-        let img = cached_img.or(new_img.as_ref())?;
-        let img = rotate_img(ib, img, self.gravity.unwrap_or(Gravity::South))?;
+        let img = ib.open(fp).ok()?;
+        let img = rotate_img(ib, &img, self.gravity.unwrap_or(Gravity::South))?;
         let metrics = get_metrics(fm, ctx, self.font.as_ref()?, self.size?)?;
         let img = resize_img(ib, &img, &metrics, self.width, self.height, self.scale)?;
         let img = recolor_img(ib, img, self.color, self.alpha)?;
         push_img_rect(attrs, i, j, &img, &metrics);
         Some(img)
     }
-}
-
-fn open_img<'i>(ib: &'i ImgBackend, src: &str) -> (Option<&'i VipsImage>, Option<VipsImage>) {
-    let cached_img = ib.get_cached(&src).ok();
-    let new_img = if cached_img.is_none() {
-        ib.open(&src).ok()
-    } else {
-        None
-    };
-    (cached_img, new_img)
 }
 
 fn get_metrics(

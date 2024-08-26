@@ -18,7 +18,10 @@ pub fn derive_card_get_value(ast: &DeriveInput) -> syn::Result<TokenStream> {
         Data::Struct(DataStruct {
             fields: Fields::Named(fields),
             ..
-        }) => Ok(fields.named.iter().map(|field| field.ident.as_ref().unwrap())),
+        }) => Ok(fields
+            .named
+            .iter()
+            .map(|field| field.ident.as_ref().unwrap())),
         _ => Err(syn::Error::new(
             ast.span(),
             "expected struct with named fields",

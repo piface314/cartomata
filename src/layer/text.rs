@@ -13,10 +13,10 @@ use libvips::VipsImage;
 #[cfg(feature = "cli")]
 use mlua::LuaSerdeExt;
 #[cfg(feature = "cli")]
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "cli", derive(Serialize, Deserialize, LuaLayer))]
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "cli", derive(LuaLayer))]
 pub struct TextLayer {
     pub text: String,
     pub x: i32,
@@ -79,30 +79,25 @@ impl TextLayer {
 }
 
 impl Layer for TextLayer {
-    fn render(&self, img: VipsImage, ctx: &mut RenderContext) -> Result<VipsImage> {
+    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage> {
+        let img_map = ctx.img_map;
+        let font_map = ctx.font_map;
+        let ib = ctx.backend;
+
         let markup = Markup::from_string(&self.text)?;
         let font = self.font.as_ref().map(|x| x.as_str()).unwrap_or("default");
         let params = self.layout_params();
-        let (text_img, layout) = ctx.backend.print(
-            markup,
-            ctx.img_map,
-            ctx.font_map,
-            font,
-            self.size,
-            self.color,
-            &params,
+        let (text_img, layout) = ib.print(
+            markup, &img_map, &font_map, font, self.size, self.color, &params,
         )?;
         let (text_img, dh) = if let Some(stroke) = self.stroke {
-            (ctx.backend.stroke(&text_img, stroke)?, stroke.size)
+            (ib.stroke(&text_img, stroke)?, stroke.size)
         } else {
             (text_img, 0)
         };
         let h = layout.baseline() + dh;
-        let (text_img, ox, oy) =
-            ctx.backend
-                .rotate(&text_img, self.r, self.ox, self.oy.into_origin(h))?;
+        let (text_img, ox, oy) = ib.rotate(&text_img, self.r, self.ox, self.oy.into_origin(h))?;
         let (ox, oy) = (Origin::Absolute(ox), Origin::Absolute(oy));
-        ctx.backend
-            .overlay(&img, &text_img, self.x, self.y, ox, oy, self.blend)
+        ib.overlay(&img, &text_img, self.x, self.y, ox, oy, self.blend)
     }
 }

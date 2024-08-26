@@ -6,13 +6,15 @@ mod output;
 
 pub use crate::cli::card::DynCard;
 use crate::cli::config::Config;
-pub use crate::cli::decode::LuaDecoder;
+pub use crate::cli::decode::LuaDecoderFactory;
 use crate::cli::output::Resize;
-use crate::data::{Predicate, SourceType};
+use crate::data::{DataSource, Predicate, SourceMap, SourceType};
+use crate::error::Result;
 use crate::pipeline::Pipeline;
 
 use clap::Parser;
-use mlua::Lua;
+use output::DynOutputMap;
+use std::num::NonZero;
 use std::path::PathBuf;
 
 /// Render card images automatically from code defined templates
@@ -61,28 +63,45 @@ impl Cli {
         }));
 
         let cli = Self::parse();
-        let (folder, config) = error!(Config::find(cli.template.as_ref().map(|s| s.as_str())));
+        let (folder, config) = error!(cli.find_config());
         let (src_map, img_map, font_map, mut out_map) = error!(config.maps(&folder));
 
-        let source = error!(src_map.select::<DynCard>(cli.source, cli.input));
-
-        let lua = Lua::new();
-        let decoder = error!(LuaDecoder::new(&lua, &folder));
-
-        if let Some(resize) = cli.resize {
-            out_map.resize = resize;
-        }
-        out_map.prefix = Some(cli.output);
-
-        let mut pipeline = error!(Pipeline::new(
-            None, source, decoder, img_map, font_map, out_map
-        ));
+        let source = error!(cli.select_source(src_map));
+        let decoder_factory = error!(LuaDecoderFactory::new(folder));
+        cli.configure_output(&mut out_map);
 
         let filter = cli
             .filter
             .as_ref()
             .map(|f| error!(Predicate::from_string(f)));
 
+        let pipeline = error!(Pipeline::new(
+            Some(NonZero::new(4).unwrap()),
+            source,
+            decoder_factory,
+            img_map,
+            font_map,
+            out_map
+        ));
+
         error!(pipeline.run(filter));
+    }
+
+    fn find_config(&self) -> Result<(PathBuf, Config)> {
+        Config::find(self.template.as_ref().map(|s| s.as_str()))
+    }
+
+    fn select_source(
+        &self,
+        src_map: SourceMap,
+    ) -> Result<Box<(dyn DataSource<DynCard> + 'static)>> {
+        src_map.select::<DynCard>(self.source, &self.input)
+    }
+
+    fn configure_output(&self, out_map: &mut DynOutputMap) {
+        if let Some(resize) = self.resize {
+            out_map.resize = resize;
+        }
+        out_map.prefix = Some(self.output.clone());
     }
 }

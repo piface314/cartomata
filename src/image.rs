@@ -19,17 +19,15 @@ use cairo::ImageSurface;
 use libvips::{ops, VipsApp, VipsImage};
 use pango::prelude::FontMapExt;
 #[cfg(feature = "cli")]
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde::Deserialize;
 use std::path::Path;
 
 pub struct ImgBackend {
     vips_app: VipsApp,
-    cache: HashMap<String, VipsImage>,
 }
 
 #[derive(Debug, Copy, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "cli", derive(Deserialize))]
 #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
 pub enum FitMode {
     Contain,
@@ -48,7 +46,6 @@ impl ImgBackend {
         Ok(Self {
             vips_app: libvips::VipsApp::default("cartomata")
                 .map_err(|e| Error::VipsError(e.to_string()))?,
-            cache: HashMap::new(),
         })
     }
 
@@ -101,21 +98,6 @@ impl ImgBackend {
         let fp = fp.as_ref();
         let img = VipsImage::new_from_file(fp).map_err(|e| self.err(e))?;
         self.reinterpret(&img)
-    }
-
-    pub fn cache(&mut self, key: impl AsRef<str>) -> Result<()> {
-        let key_str = key.as_ref();
-        if !self.cache.contains_key(key_str) {
-            self.cache.insert(key_str.to_string(), self.open(key)?);
-        }
-        Ok(())
-    }
-
-    pub fn get_cached(&self, key: impl AsRef<str>) -> Result<&VipsImage> {
-        let key_str = key.as_ref();
-        self.cache
-            .get(key_str)
-            .ok_or_else(|| Error::ImageCacheMiss(key_str.to_string()))
     }
 
     pub fn set_color(&self, img: &VipsImage, color: Color) -> Result<VipsImage> {
@@ -279,7 +261,7 @@ impl ImgBackend {
     }
 
     pub fn print(
-        &mut self,
+        &self,
         markup: Markup,
         im: &ImageMap,
         fm: &FontMap,
@@ -345,7 +327,7 @@ impl ImgBackend {
     }
 
     fn convert_attrs(
-        &mut self,
+        &self,
         im: &ImageMap,
         fm: &FontMap,
         ctx: &pango::Context,

@@ -45,7 +45,7 @@ impl ImageMap {
     }
 }
 
-pub trait OutputMap<C: Card> {
+pub trait OutputMap<C: Card>: Sync + Send {
     fn path(&self, card: &C) -> PathBuf;
     fn write(&self, ib: &ImgBackend, img: &VipsImage, path: impl AsRef<Path>) -> Result<()> {
         ib.write(img, path)

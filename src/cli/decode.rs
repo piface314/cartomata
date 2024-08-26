@@ -1,7 +1,8 @@
 //! Implementation for the dynamic decoder, using Lua scripts.
 
+use crate::abox::AliasBox;
 use crate::cli::DynCard;
-use crate::decode::Decoder;
+use crate::decode::{Decoder, DecoderFactory};
 use crate::error::{Error, Result};
 use crate::layer::{ArtworkLayer, AssetLayer, LabelLayer, TextLayer};
 use crate::layer::{Layer, LayerStack};
@@ -11,44 +12,64 @@ use mlua::{
     Value as LuaValue, Variadic,
 };
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 
-pub struct LuaDecoder<'lua> {
-    decode: Function<'lua>,
+pub struct LuaDecoderFactory {
+    folder: PathBuf,
+    chunk: String,
+}
+
+impl LuaDecoderFactory {
+    pub fn new(folder: PathBuf) -> Result<Self> {
+        let mut path = folder.clone();
+        path.push("decode.lua");
+        let chunk = fs::read_to_string(&path)
+            .map_err(|e| Error::FailedOpenDecoder(path.display().to_string(), e.to_string()))?;
+        Ok(Self { folder, chunk })
+    }
+}
+
+impl DecoderFactory<DynCard> for LuaDecoderFactory {
+    fn create(&self) -> Result<impl Decoder<DynCard>> {
+        LuaDecoder::new(&self.folder, &self.chunk)
+    }
+}
+
+pub struct LuaDecoder {
+    // actually has lifetime of `_lua``
+    decode: Function<'static>,
+    // SAFETY: we must never move out of this box as long as `decode` is alive
+    _lua: AliasBox<Lua>,
 }
 
 macro_rules! register {
-    ($lua:expr, $module:expr, $( $layer:ty )*) => {
+    (($( $layer:ty ),*) to $lua:expr, $module:expr) => {
         $(
-            <$layer>::register($lua, $module)
-            .map_err(|e| Error::FailedPrepareDecoder(e.to_string()))?;
+            <$layer>::register($lua, $module)?;
         )*
     }
 }
 
-impl<'lua> LuaDecoder<'lua> {
-    pub fn new(lua: &'lua Lua, folder: impl AsRef<Path>) -> Result<Self> {
-        let req_path = folder.as_ref();
-        let mut path = req_path.to_path_buf();
-        path.push("decode.lua");
+impl LuaDecoder {
+    fn new(req_path: &PathBuf, chunk: &str) -> Result<Self> {
+        let lua = AliasBox::new(Lua::new());
 
-        let chunk = fs::read_to_string(&path)
-            .map_err(|e| Error::FailedOpenDecoder(path.display().to_string(), e.to_string()))?;
+        Self::create_layer_module(&lua).map_err(|e| Error::FailedPrepareDecoder(e.to_string()))?;
 
-        let module = Self::create_layer_module(lua)
+        Self::extend_package_path(&lua, req_path.display().to_string().as_str())
             .map_err(|e| Error::FailedPrepareDecoder(e.to_string()))?;
-
-        Self::extend_package_path(lua, req_path.display().to_string().as_str())
-            .map_err(|e| Error::FailedPrepareDecoder(e.to_string()))?;
-
-        register!(lua, &module, AssetLayer ArtworkLayer LabelLayer TextLayer);
 
         let decode: Function = lua
-            .load(&chunk)
+            .load(chunk)
             .call(())
             .map_err(|e| Error::FailedOpenDecoder(String::new(), e.to_string()))?;
 
-        Ok(Self { decode })
+        let decode = unsafe { std::mem::transmute(decode) };
+
+        Ok(Self {
+            decode,
+            _lua: lua,
+        })
     }
 
     fn extend_package_path(lua: &Lua, req_path: &str) -> LuaResult<()> {
@@ -64,12 +85,12 @@ impl<'lua> LuaDecoder<'lua> {
         Ok(())
     }
 
-    fn create_layer_module(lua: &Lua) -> LuaResult<Table> {
+    fn create_layer_module(lua: &Lua) -> LuaResult<()> {
         let globals = &lua.globals();
         let loaded: Table = globals
             .get::<_, Table>("package")?
             .get::<_, Table>("loaded")?;
-        match loaded.get("cartomata.layer")? {
+        let module = match loaded.get("cartomata.layer")? {
             LuaValue::Table(module) => Ok(module),
             LuaValue::Nil => {
                 let module = lua.create_table()?;
@@ -79,12 +100,14 @@ impl<'lua> LuaDecoder<'lua> {
             _ => Err(LuaError::RuntimeError(
                 "failed to create cartomata.layer module".to_string(),
             )),
-        }
+        }?;
+        register!((ArtworkLayer, AssetLayer, LabelLayer, TextLayer) to &lua, &module);
+        Ok(())
     }
 }
 
 macro_rules! cast_layer {
-    ($value:expr, $lua:expr, $layer:expr, $($ltype:ty)*) => {
+    (($value:expr, $lua:expr, $layer:expr) to $($ltype:ty)|*) => {
         {
             $(if $layer.is::<$ltype>() {
                 <$ltype>::from_lua($value, $lua).map(|l| Box::new(l) as Box<dyn Layer>)
@@ -106,7 +129,10 @@ impl<'lua> FromLua<'lua> for Box<dyn Layer> {
     fn from_lua(value: LuaValue<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
         match &value {
             LuaValue::UserData(ud) => {
-                cast_layer!(value, lua, ud, AssetLayer ArtworkLayer LabelLayer TextLayer)
+                cast_layer!(
+                    (value, lua, ud)
+                    to AssetLayer | ArtworkLayer | LabelLayer | TextLayer
+                )
             }
             _ => Err(LuaError::FromLuaConversionError {
                 from: value.type_name(),
@@ -117,7 +143,7 @@ impl<'lua> FromLua<'lua> for Box<dyn Layer> {
     }
 }
 
-impl<'lua> Decoder<DynCard> for LuaDecoder<'lua> {
+impl Decoder<DynCard> for LuaDecoder {
     fn decode(&self, card: DynCard) -> Result<LayerStack> {
         let DynCard(card_data) = card;
         let layers: Variadic<Box<dyn Layer>> = self

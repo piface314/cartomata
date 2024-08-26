@@ -1,5 +1,6 @@
 //! Contains implementation for SQLite as card data source.
 
+use crate::abox::AliasBox;
 use crate::data::predicate::SetValue;
 use crate::data::{Card, DataSource, Predicate, Value};
 use crate::error::{Error, Result};
@@ -80,46 +81,10 @@ impl<'s, C: Card> DataSource<C> for SqliteSource {
 
 
 struct SqliteIterator<'c, C: Card> {
-    // actually has lifetime of `stmt``
+    // actually has lifetime of `_stmt``
     rows: DeserRows<'static, C>,
     // SAFETY: we must never move out of this box as long as `rows` is alive
     _stmt: AliasBox<Statement<'c>>,
-}
-
-struct AliasBox<T> {
-    ptr: *const T,
-}
-
-impl<T> AliasBox<T> {
-    pub fn new(value: T) -> Self {
-        Self {
-            ptr: Box::into_raw(Box::new(value)),
-        }
-    }
-
-    pub fn as_ptr(&self) -> *mut T {
-        self.ptr as *mut T
-    }
-}
-
-impl<T> std::ops::Deref for AliasBox<T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        unsafe { &*self.ptr }
-    }
-}
-impl<T> std::ops::DerefMut for AliasBox<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.as_ptr() }
-    }
-}
-
-impl<T> Drop for AliasBox<T> {
-    fn drop(&mut self) {
-        unsafe {
-            drop(Box::from_raw(self.ptr as *mut T));
-        }
-    }
 }
 
 impl<'c, C: Card> Iterator for SqliteIterator<'c, C> {
