@@ -32,13 +32,11 @@ impl<C: Card, D: DecoderFactory<C> + 'static, O: OutputMap<C> + 'static> Pipelin
         font_map: FontMap,
         out_map: O,
     ) -> Result<Self> {
-        let n_workers = match n_workers {
-            Some(n) => n.get(),
-            None => thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(1),
-        };
-        let n_workers = n_workers.clamp(1, Self::MAX_WORKERS);
+        let av_workers = thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        let n_workers = n_workers.map(|n| n.get()).unwrap_or(1);
+        let n_workers = n_workers.clamp(1, av_workers.min(Self::MAX_WORKERS));
         Ok(Self {
             n_workers,
             source,

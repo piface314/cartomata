@@ -44,6 +44,10 @@ pub struct Cli {
     /// Optionally resizes output
     #[arg(long)]
     pub resize: Option<Resize>,
+
+    /// Number of worker threads
+    #[arg(short, long)]
+    pub workers: Option<NonZero<usize>>,
 }
 
 macro_rules! error {
@@ -76,7 +80,7 @@ impl Cli {
             .map(|f| error!(Predicate::from_string(f)));
 
         let pipeline = error!(Pipeline::new(
-            Some(NonZero::new(4).unwrap()),
+            cli.workers,
             source,
             decoder_factory,
             img_map,
