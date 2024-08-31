@@ -10,6 +10,7 @@ pub mod decode;
 pub mod error;
 pub mod image;
 pub mod layer;
+pub mod logs;
 pub mod pipeline;
 pub mod text;
 

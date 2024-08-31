@@ -3,6 +3,7 @@ use crate::decode::{Decoder, DecoderFactory};
 use crate::error::{Error, Result};
 use crate::image::{ImageMap, ImgBackend, OutputMap};
 use crate::layer::RenderContext;
+use crate::logs::{LogEvent, ProgressBar};
 use crate::text::FontMap;
 
 use std::collections::VecDeque;
@@ -21,11 +22,21 @@ pub struct Pipeline<C: Card, D: DecoderFactory<C>, O: OutputMap<C>> {
     out_map: O,
 }
 
-impl<C: Card, D: DecoderFactory<C> + 'static, O: OutputMap<C> + 'static> Pipeline<C, D, O> {
-    const MAX_WORKERS: usize = 4;
+macro_rules! send {
+    ($Variant:ident(from $id:expr) to $tx:expr) => {
+        $tx.send(LogEvent::$Variant($id)).map_err(|e| Error::SendError($id, e.to_string()))
+    };
+    ($Variant:ident(from $id:expr, $v:expr) to $tx:expr) => {
+        $tx.send(LogEvent::$Variant($id, $v)).map_err(|e| Error::SendError($id, e.to_string()))
+    };
+    ($Variant:ident($v:expr) to $tx:expr) => {
+        $tx.send(LogEvent::$Variant($v)).map_err(|e| Error::SendError(0, e.to_string()))
+    };
+}
 
+impl<C: Card, D: DecoderFactory<C> + 'static, O: OutputMap<C> + 'static> Pipeline<C, D, O> {
     pub fn new(
-        n_workers: Option<NonZero<usize>>,
+        n_workers: NonZero<usize>,
         source: Box<dyn DataSource<C>>,
         decoder_factory: D,
         img_map: ImageMap,
@@ -35,8 +46,7 @@ impl<C: Card, D: DecoderFactory<C> + 'static, O: OutputMap<C> + 'static> Pipelin
         let av_workers = thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
-        let n_workers = n_workers.map(|n| n.get()).unwrap_or(1);
-        let n_workers = n_workers.clamp(1, av_workers.min(Self::MAX_WORKERS));
+        let n_workers = n_workers.get().clamp(1, av_workers);
         Ok(Self {
             n_workers,
             source,
@@ -58,7 +68,7 @@ impl<C: Card, D: DecoderFactory<C> + 'static, O: OutputMap<C> + 'static> Pipelin
         let out_map = Arc::new(RwLock::new(self.out_map));
         let (tx, rx) = mpsc::channel();
 
-        let handles: Vec<JoinHandle<Result<()>>> = (0..n_workers)
+        let handles: Vec<JoinHandle<Result<()>>> = (1..=n_workers)
             .map(|id| {
                 let tx = tx.clone();
                 let queue = queue.clone();
@@ -90,27 +100,33 @@ impl<C: Card, D: DecoderFactory<C> + 'static, O: OutputMap<C> + 'static> Pipelin
             .collect();
 
         thread::spawn(move || {
-            while let Ok(msg) = rx.recv() {
-                match msg {
-                    (id, WorkerEvent::Info(e)) => eprintln!("{id:02}::info: {e}"),
-                    (id, WorkerEvent::Warn(e)) => eprintln!("{id:02}::warn: {e}"),
-                    (id, WorkerEvent::Done) => eprintln!("{id:02}::finished"),
+            let mut pbar = ProgressBar::new_stderr(NonZero::new(n_workers).unwrap()).unwrap();
+            loop {
+                if let Ok(log) = rx.try_recv() {
+                    pbar.log(log).unwrap();
                 }
+                pbar.update().unwrap();
             }
         });
 
+        let mut total: usize = 0;
         for card in self.source.read(filter)? {
+            total += 1;
             match card {
                 Ok(card) => queue.push(card)?,
-                Err(e) => eprintln!("src::warn: {e}"),
+                Err(e) => send!(Warn(from 0, e.to_string()) to tx)?,
             }
         }
         queue.done()?;
+        send!(Total(total) to tx)?;
 
         for (id, handle) in handles.into_iter().enumerate() {
             let thread_result = handle.join().map_err(|_| Error::JoinError(id))?;
-            thread_result.unwrap_or_else(|e| eprintln!("{id}::error: {e}"));
+            if let Err(e) = thread_result {
+                send!(Error(from id + 1, e.to_string()) to tx)?;
+            }
         }
+        send!(Done(from 0, "done!".into()) to tx)?;
         Ok(())
     }
 }
@@ -178,15 +194,9 @@ impl<C: Card> CardQueue<C> {
     }
 }
 
-enum WorkerEvent {
-    Info(String),
-    Warn(Error),
-    Done,
-}
-
 struct Worker<C: Card, D: Decoder<C>, O: OutputMap<C>> {
     pub id: usize,
-    pub tx: Sender<(usize, WorkerEvent)>,
+    pub tx: Sender<LogEvent>,
     pub queue: Arc<CardQueue<C>>,
     pub decoder: D,
     pub img_map: Arc<RwLock<ImageMap>>,
@@ -207,12 +217,13 @@ impl<C: Card, D: Decoder<C>, O: OutputMap<C>> Worker<C, D, O> {
         };
         while let Some(card) = self.queue.pop()? {
             let card_id = card.get("id");
+            send!(Status(from self.id, format!("processing card `{card_id}`...")) to self.tx)?;
             match self.process(card, &ctx) {
-                Ok(()) => self.info(format!("Processing card {card_id}"))?,
-                Err(e) => self.warn(e)?,
+                Ok(()) => send!(Count(from self.id) to self.tx)?,
+                Err(e) => send!(Warn(from self.id, e.to_string()) to self.tx)?,
             }
         }
-        self.done()?;
+        send!(Done(from self.id, "done!".to_string()) to self.tx)?;
         Ok(())
     }
 
@@ -223,23 +234,5 @@ impl<C: Card, D: Decoder<C>, O: OutputMap<C>> Worker<C, D, O> {
         let img = stack.render(ctx)?;
         out_map.write(&ctx.backend, &img, path)?;
         Ok(())
-    }
-
-    fn info(&self, msg: String) -> Result<()> {
-        self.tx
-            .send((self.id, WorkerEvent::Info(msg)))
-            .map_err(|e| Error::SendError(self.id, e.to_string()))
-    }
-
-    fn warn(&self, error: Error) -> Result<()> {
-        self.tx
-            .send((self.id, WorkerEvent::Warn(error)))
-            .map_err(|e| Error::SendError(self.id, e.to_string()))
-    }
-
-    fn done(&self) -> Result<()> {
-        self.tx
-            .send((self.id, WorkerEvent::Done))
-            .map_err(|e| Error::SendError(self.id, e.to_string()))
     }
 }

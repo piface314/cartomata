@@ -21,7 +21,13 @@ use std::path::PathBuf;
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
+    #[cfg(target_os = "linux")]
     /// Template name, corresponding to a folder in ~/.config/cartomata,
+    /// or the current folder if omitted.
+    pub template: Option<String>,
+
+    #[cfg(target_os = "windows")]
+    /// Template name, corresponding to a folder in %APPDATA%/cartomata,
     /// or the current folder if omitted.
     pub template: Option<String>,
 
@@ -46,8 +52,8 @@ pub struct Cli {
     pub resize: Option<Resize>,
 
     /// Number of worker threads
-    #[arg(short, long)]
-    pub workers: Option<NonZero<usize>>,
+    #[arg(short, long, default_value_t = NonZero::new(4).unwrap())]
+    pub workers: NonZero<usize>,
 }
 
 macro_rules! error {
