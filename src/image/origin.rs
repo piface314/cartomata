@@ -2,17 +2,15 @@
 
 
 #[cfg(feature = "cli")]
-use serde::{de, Deserialize, Serialize};
+use serde::{de, Deserialize};
 
-// TODO: rename this struct?
-
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Copy, Clone)]
 pub enum Origin {
     Absolute(f64),
     Relative(f64),
 }
 
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Copy, Clone)]
 pub enum TextOrigin {
     Absolute(f64),
     Relative(f64),

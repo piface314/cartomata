@@ -40,7 +40,6 @@ impl Layer for ArtworkLayer {
     fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage> {
         let img_map = ctx.img_map;
         let ib = ctx.backend;
-
         let path = img_map.artwork_path(&self.id)?;
         let artwork = ib.open(path.to_string_lossy())?;
         let artwork = ib.scale_to_fit(&artwork, self.w, self.h, self.fit)?;

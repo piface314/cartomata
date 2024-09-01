@@ -12,7 +12,7 @@ pub use crate::image::color::Color;
 pub use crate::image::map::{ImageMap, OutputMap};
 pub use crate::image::origin::{Origin, TextOrigin};
 pub use crate::image::stroke::Stroke;
-use crate::text::attr::{Gravity, ITagAttr, LayoutAttr, TagAttr};
+use crate::text::attr::{Gravity, ITagAttr, LayoutAttr};
 use crate::text::{FontMap, Markup};
 
 use cairo::ImageSurface;
@@ -44,16 +44,13 @@ impl Default for FitMode {
 impl ImgBackend {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            vips_app: libvips::VipsApp::default("cartomata")
-                .map_err(|e| Error::VipsError(e.to_string()))?,
+            vips_app: libvips::VipsApp::default("cartomata").map_err(|e| Error::vips(e, None))?,
         })
     }
 
     fn err(&self, e: libvips::error::Error) -> Error {
-        Error::VipsError(format!(
-            "{e}\n{}",
-            self.vips_app.error_buffer().expect("vips error buffer")
-        ))
+        let extra = self.vips_app.error_buffer().ok();
+        Error::vips(e, extra)
     }
 
     fn reinterpret(&self, img: &VipsImage) -> Result<VipsImage> {
@@ -88,7 +85,7 @@ impl ImgBackend {
     pub fn cairo_to_vips(&self, img: ImageSurface) -> Result<VipsImage> {
         let mut buffer = Vec::new();
         img.write_to_png(&mut buffer)
-            .map_err(|_| Error::ImageConversionError("cairo", "vips"))?;
+            .map_err(Error::cairo_to_vips)?;
         let mut img = VipsImage::new_from_buffer(&buffer, "").map_err(|e| self.err(e))?;
         img.image_wio_input().map_err(|e| self.err(e))?;
         self.reinterpret(&img)
@@ -271,21 +268,20 @@ impl ImgBackend {
         params: &[LayoutAttr],
     ) -> Result<(VipsImage, pango::Layout)> {
         if fm.get(font).is_none() {
-            return Err(Error::FontCacheMiss(font.into()));
+            return Err(Error::font_missing(font));
         }
-        let err = |e: cairo::Error| Error::CairoError(e.to_string());
         let ctx = pangocairo::FontMap::new().create_context();
         let layout = pango::Layout::new(&ctx);
         params.iter().for_each(|p| p.configure(&ctx, &layout));
 
-        let mut opt = cairo::FontOptions::new().map_err(err)?;
+        let mut opt = cairo::FontOptions::new().map_err(Error::cairo)?;
         opt.set_antialias(cairo::Antialias::Good);
         pangocairo::functions::context_set_font_options(&ctx, Some(&opt));
 
         let gravity = Gravity::from(ctx.gravity());
         let (attrs, text) =
             markup.parsed(font.to_string(), pango::SCALE * size as i32, color, gravity);
-        let (attr_list, images) = self.convert_attrs(im, fm, &ctx, attrs)?;
+        let (attr_list, images) = ITagAttr::vec_to_pango(attrs, self, im, fm, &ctx)?;
         layout.set_font_description(fm.get_desc_pt(font, size).as_ref());
         layout.set_attributes(Some(&attr_list));
         layout.set_text(&text);
@@ -297,8 +293,8 @@ impl ImgBackend {
                 log_rect.width() / pango::SCALE,
                 log_rect.height() / pango::SCALE,
             )
-            .map_err(err)?;
-            let cr = cairo::Context::new(&base).map_err(err)?;
+            .map_err(Error::cairo)?;
+            let cr = cairo::Context::new(&base).map_err(Error::cairo)?;
             let (r, g, b, a) = color.rgba();
             cr.set_source_rgba(r, g, b, a);
             pangocairo::functions::show_layout(&cr, &layout);
@@ -324,37 +320,6 @@ impl ImgBackend {
             }
         }
         Ok((base, layout))
-    }
-
-    fn convert_attrs(
-        &self,
-        im: &ImageMap,
-        fm: &FontMap,
-        ctx: &pango::Context,
-        attrs: Vec<ITagAttr>,
-    ) -> Result<(pango::AttrList, Vec<Option<VipsImage>>)> {
-        let mut attr_list = pango::AttrList::new();
-        let mut images = Vec::new();
-        for attr in attrs.into_iter() {
-            match attr.value {
-                TagAttr::Span(a) => {
-                    a.push_pango_attrs(fm, &mut attr_list, attr.start_index, attr.end_index)?
-                }
-                TagAttr::Img(a) => {
-                    let img = a.push_pango_attrs(
-                        self,
-                        im,
-                        fm,
-                        ctx,
-                        &mut attr_list,
-                        attr.start_index,
-                        attr.end_index,
-                    );
-                    images.push(img);
-                }
-            }
-        }
-        Ok((attr_list, images))
     }
 
     pub fn write(&self, img: &VipsImage, path: impl AsRef<Path>) -> Result<()> {

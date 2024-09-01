@@ -27,14 +27,18 @@ impl ImageMap {
         let key = key.as_ref();
         let mut path = self.artwork_folder.clone();
         path.push(key);
-        self.extensions
+        let found_path = self.extensions
             .iter()
             .filter_map(move |ext| {
                 path.set_extension(ext);
                 path.exists().then(|| path.clone())
             })
-            .next()
-            .ok_or_else(|| Error::ArtworkNotFound(key.to_string()))
+            .next();
+        match (found_path, &self.placeholder) {
+            (Some(path), _) => Ok(path),
+            (None, Some(placeholder)) => Ok(placeholder.clone()),
+            (None, None) => Err(Error::no_artwork(key)),
+        }
     }
 
     pub fn artwork_literal_path(&self, key: impl AsRef<Path>) -> PathBuf {

@@ -94,9 +94,9 @@ impl Config {
     pub fn open(path: &impl AsRef<Path>) -> Result<(PathBuf, Self)> {
         let path = path.as_ref();
         let content = fs::read_to_string(path)
-            .map_err(|e| Error::FailedOpenTemplate(path.to_path_buf(), e.to_string()))?;
+            .map_err(|e| Error::config_open(path, e))?;
         let raw: Self = toml::from_str(&content)
-            .map_err(|e| Error::FailedOpenTemplate(path.to_path_buf(), e.to_string()))?;
+            .map_err(|e| Error::config_deser(path, e))?;
         let folder = path
             .parent()
             .expect("toml file is inside some folder")
@@ -157,7 +157,7 @@ impl Config {
 
     #[cfg(target_os = "windows")]
     fn config_folder() -> Result<PathBuf> {
-        let home = std::env::var("APPDATA").map_err(|_| Error::MissingVariable("APPDATA"))?;
+        let home = std::env::var("APPDATA").map_err(|_| Error::no_env_variable("APPDATA"))?;
         let mut home = PathBuf::from(home);
         home.push("cartomata");
         Ok(home)
@@ -165,7 +165,7 @@ impl Config {
 
     #[cfg(target_os = "linux")]
     fn config_folder() -> Result<PathBuf> {
-        let home = std::env::var("HOME").map_err(|_| Error::MissingVariable("HOME"))?;
+        let home = std::env::var("HOME").map_err(|_| Error::no_env_variable("HOME"))?;
         let mut home = PathBuf::from(home);
         home.push(".config");
         home.push("cartomata");

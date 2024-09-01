@@ -43,7 +43,7 @@ impl CsvSource {
             .delimiter(config.delimiter as u8)
             .has_headers(config.header)
             .from_path(path)
-            .map_err(|e| Error::FailedOpenDataSource(path.to_path_buf(), e.to_string()))?;
+            .map_err(|e| Error::source_open(path, e))?;
         Ok(Self { reader })
     }
 }
@@ -56,7 +56,7 @@ impl<C: Card> DataSource<C> for CsvSource {
         let iterator = self
             .reader
             .deserialize::<C>()
-            .map(|r| r.map_err(|e| Error::FailedRecordRead(e.to_string())));
+            .map(|r| r.map_err(Error::record_read));
 
         match filter {
             Some(filter) => Ok(Box::new(iterator.filter_ok(move |card| filter.eval(card)))),

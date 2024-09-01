@@ -25,6 +25,40 @@ impl ITagAttr {
             end_index: 0,
         }
     }
+
+    pub fn vec_to_pango(
+        attrs: Vec<ITagAttr>,
+        ib: &ImgBackend,
+        im: &ImageMap,
+        fm: &FontMap,
+        ctx: &pango::Context,
+    ) -> Result<(pango::AttrList, Vec<Option<VipsImage>>)> {
+        let mut attr_list = pango::AttrList::new();
+        let mut images = Vec::new();
+        for attr in attrs.into_iter() {
+            attr.to_pango(ib, im, fm, ctx, &mut attr_list, &mut images)?;
+        }
+        Ok((attr_list, images))
+    }
+
+    pub fn to_pango(
+        self,
+        ib: &ImgBackend,
+        im: &ImageMap,
+        fm: &FontMap,
+        ctx: &pango::Context,
+        attr_list: &mut pango::AttrList,
+        images: &mut Vec<Option<VipsImage>>,
+    ) -> Result<()> {
+        match self.value {
+            TagAttr::Span(a) => a.to_pango(fm, attr_list, self.start_index, self.end_index)?,
+            TagAttr::Img(a) => {
+                let img = a.to_pango(ib, im, fm, ctx, attr_list, self.start_index, self.end_index);
+                images.push(img);
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -34,12 +68,12 @@ pub enum TagAttr {
 }
 
 macro_rules! attr_parse {
-    ($key:expr; $val:expr; $($pat:expr, $att:ident, $T:ty);*) => {{
+    ($tag:literal, $key:expr; $val:expr; $($pat:expr, $att:ident, $T:ty);*) => {{
         match $key {
             $($pat => Ok(Self::$att($val.parse::<$T>().map_err(|e|
-                crate::error::Error::TextAttrParseError($key.to_string(), e.to_string())
+                Error::text_invalid_attr_val($tag, $pat, $val, e.to_string())
             )?)), ) *
-            _ => Err(crate::error::Error::TextInvalidAttr($key.to_string())),
+            _ => Err(Error::text_invalid_attr($tag, $key)),
         }
     }};
 }
@@ -47,7 +81,7 @@ macro_rules! attr_parse {
 macro_rules! enum_attr {
     (
         $(#[$outer:meta])*
-        $vis:vis enum $Attr:ident {
+        $vis:vis enum $Attr:ident as $tag:literal {
             $( $k:literal => $Variant:ident($T:ty), )*
         }
     ) => {
@@ -58,7 +92,7 @@ macro_rules! enum_attr {
 
         impl $Attr {
             pub fn from_key_value(key: &str, value: &str) -> Result<Self> {
-                attr_parse!(key; value; $( $k, $Variant, $T );*)
+                attr_parse!($tag, key; value; $( $k, $Variant, $T );*)
             }
         }
     };
@@ -83,12 +117,17 @@ macro_rules! struct_attr {
                 match key {
                     $($k => {
                         let parsed = value.parse::<$T>().map_err(|e|
-                            Error::TextAttrParseError(key.to_string(), e.to_string())
+                            Error::text_invalid_attr_val(
+                                if self.inherit { "icon" } else { "img" },
+                                $k,
+                                key,
+                                e.to_string()
+                            )
                         )?;
                         self.$Field = Some(parsed);
                         Ok(())
                     } ) *
-                    _ => Err(Error::TextInvalidAttr(key.to_string())),
+                    _ => Err(Error::text_invalid_attr(if self.inherit { "icon" } else { "img" }, key)),
                 }
             }
         }
@@ -97,7 +136,7 @@ macro_rules! struct_attr {
 
 enum_attr! {
     #[derive(Debug, Clone)]
-    pub enum SpanAttr {
+    pub enum SpanAttr as "span" {
         "font"            => Font(String),
         "features"        => Features(String),
         "size"            => Size(Points),
@@ -139,7 +178,7 @@ macro_rules! indexed {
 
 macro_rules! push {
     (AttrFontDesc ($fm:ident($font:ident)) >> $attrs:ident at $i:ident, $j:ident) => {{
-        let desc = $fm.get_desc(&$font).ok_or_else(|| Error::FontCacheMiss($font.clone()))?;
+        let desc = $fm.get_desc(&$font).ok_or_else(|| Error::font_missing($font))?;
         $attrs.insert(indexed!(pango::AttrFontDesc::new(&desc); at $i, $j));
     }};
     ($Attr:ident ($val:expr) >> $attrs:ident at $i:ident, $j:ident) => {{
@@ -174,13 +213,7 @@ macro_rules! push {
 }
 
 impl SpanAttr {
-    pub fn push_pango_attrs(
-        self,
-        fm: &FontMap,
-        attrs: &mut pango::AttrList,
-        i: u32,
-        j: u32,
-    ) -> Result<()> {
+    pub fn to_pango(self, fm: &FontMap, attrs: &mut pango::AttrList, i: u32, j: u32) -> Result<()> {
         match self {
             Self::Font(x) => push!(AttrFontDesc (fm(x)) >> attrs at i, j),
             Self::Features(x) => push!(AttrFontFeatures (&x) >> attrs at i, j),
@@ -286,8 +319,8 @@ impl ImgAttr {
         self
     }
 
-    pub fn push_pango_attrs(
-        &self,
+    pub fn to_pango(
+        self,
         ib: &ImgBackend,
         im: &ImageMap,
         fm: &FontMap,
@@ -299,7 +332,7 @@ impl ImgAttr {
         let fp = im.asset_path(self.src.as_ref()?);
         let fp = &fp.to_string_lossy();
         let img = ib.open(fp).ok()?;
-        let img = rotate_img(ib, &img, self.gravity.unwrap_or(Gravity::South))?;
+        let img = rotate_img(ib, img, self.gravity.unwrap_or(Gravity::South))?;
         let metrics = get_metrics(fm, ctx, self.font.as_ref()?, self.size?)?;
         let img = resize_img(ib, &img, &metrics, self.width, self.height, self.scale)?;
         let img = recolor_img(ib, img, self.color, self.alpha)?;
@@ -318,12 +351,12 @@ fn get_metrics(
     Some(ctx.metrics(Some(&desc), None))
 }
 
-fn rotate_img(ib: &ImgBackend, img: &VipsImage, gravity: Gravity) -> Option<VipsImage> {
+fn rotate_img(ib: &ImgBackend, img: VipsImage, gravity: Gravity) -> Option<VipsImage> {
     let deg = match gravity {
         Gravity::North => 180.0,
         Gravity::East => -90.0,
         Gravity::West => 90.0,
-        _ => 0.0,
+        _ => return Some(img),
     };
     let (img, _, _) = ib
         .rotate(&img, deg, Origin::default(), Origin::default())

@@ -134,13 +134,13 @@ impl<'src> TextParser<'src> {
     fn next_token(&mut self) -> Result<Option<Token>> {
         let output = match self.lexer_context {
             LexerContext::Free => self.text_lexer.next().map(|r| {
-                r.map_err(|_| Error::ScanError(format!("{:?}", self.text_lexer.slice())))
+                r.map_err(|_| Error::scan(self.text_lexer.slice()))
                     .map(|t| t.into())
             }),
             LexerContext::Tag => self
                 .tag_lexer
                 .next()
-                .map(|r| r.map_err(|_| Error::ScanError(format!("{:?}", self.tag_lexer.slice())))),
+                .map(|r| r.map_err(|_| Error::scan(self.tag_lexer.slice()))),
         };
         output.transpose()
     }

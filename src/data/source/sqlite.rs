@@ -29,8 +29,7 @@ pub struct SqliteSource {
 impl SqliteSource {
     pub fn open(config: SqliteSourceConfig, path: impl AsRef<Path>) -> Result<SqliteSource> {
         let path = path.as_ref();
-        let connection = Connection::open(path)
-            .map_err(|e| Error::FailedOpenDataSource(path.to_path_buf(), e.to_string()))?;
+        let connection = Connection::open(path).map_err(|e| Error::source_open(path, e))?;
         Ok(Self {
             query: config.query,
             with_predicate: config.with_predicate,
@@ -59,26 +58,25 @@ impl<'s, C: Card> DataSource<C> for SqliteSource {
                     });
                 self.connection
                     .prepare(&query)
-                    .map_err(|e| Error::FailedPrepDataSource(e.to_string()))
+                    .map_err(Error::source_prep)
                     .map(|stmt| (stmt, vars))?
             }
             None => self
                 .connection
                 .prepare(&self.query)
-                .map_err(|e| Error::FailedPrepDataSource(e.to_string()))
+                .map_err(Error::source_prep)
                 .map(|stmt| (stmt, Vec::new()))?,
         };
 
         let mut stmt = AliasBox::new(stmt);
         let rows = from_rows::<C>(
             stmt.query(params_from_iter(vars.iter()))
-                .map_err(|e| Error::FailedPrepDataSource(e.to_string()))?,
+                .map_err(Error::source_prep)?,
         );
         let rows = unsafe { std::mem::transmute(rows) };
         Ok(Box::new(SqliteIterator { rows, _stmt: stmt }))
     }
 }
-
 
 struct SqliteIterator<'c, C: Card> {
     // actually has lifetime of `_stmt``
@@ -90,9 +88,7 @@ struct SqliteIterator<'c, C: Card> {
 impl<'c, C: Card> Iterator for SqliteIterator<'c, C> {
     type Item = Result<C>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.rows
-            .next()
-            .map(|r| r.map_err(|e| Error::FailedRecordRead(e.to_string())))
+        self.rows.next().map(|r| r.map_err(Error::record_read))
     }
 }
 
@@ -128,7 +124,7 @@ impl Predicate {
         let mut buf = String::from("WHERE ");
         let mut vars = Vec::new();
         self.sql_r(&mut buf, &mut vars)
-            .map_err(|e| Error::FailedPrepDataSource(e.to_string()))?;
+            .map_err(Error::source_prep)?;
         Ok((buf, vars))
     }
 

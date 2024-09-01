@@ -24,7 +24,7 @@ impl LuaDecoderFactory {
         let mut path = folder.clone();
         path.push("decode.lua");
         let chunk = fs::read_to_string(&path)
-            .map_err(|e| Error::FailedOpenDecoder(path.display().to_string(), e.to_string()))?;
+            .map_err(|e| Error::decoder_open(path, e))?;
         Ok(Self { folder, chunk })
     }
 }
@@ -54,15 +54,15 @@ impl LuaDecoder {
     fn new(req_path: &PathBuf, chunk: &str) -> Result<Self> {
         let lua = AliasBox::new(Lua::new());
 
-        Self::create_layer_module(&lua).map_err(|e| Error::FailedPrepareDecoder(e.to_string()))?;
+        Self::create_layer_module(&lua).map_err(Error::decoder_prep)?;
 
         Self::extend_package_path(&lua, req_path.display().to_string().as_str())
-            .map_err(|e| Error::FailedPrepareDecoder(e.to_string()))?;
+            .map_err(Error::decoder_prep)?;
 
         let decode: Function = lua
             .load(chunk)
             .call(())
-            .map_err(|e| Error::FailedOpenDecoder(String::new(), e.to_string()))?;
+            .map_err(Error::decoder_prep)?;
 
         let decode = unsafe { std::mem::transmute(decode) };
 
@@ -149,7 +149,7 @@ impl Decoder<DynCard> for LuaDecoder {
         let layers: Variadic<Box<dyn Layer>> = self
             .decode
             .call(card_data)
-            .map_err(|e| Error::Decoding(e.to_string()))?;
+            .map_err(Error::decode)?;
         Ok(LayerStack(layers.into_iter().collect()))
     }
 }

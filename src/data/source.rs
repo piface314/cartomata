@@ -79,7 +79,7 @@ impl SourceMap {
         let path = path.as_ref();
         let src_type = src_type
             .or_else(|| Self::infer_source_type(path))
-            .ok_or_else(|| Error::SourceInferError(path.to_path_buf()))?;
+            .ok_or_else(|| Error::source_inference(path))?;
         match src_type {
             #[cfg(feature = "csv")]
             SourceType::Csv => {
@@ -89,7 +89,9 @@ impl SourceMap {
             }
             #[cfg(feature = "sqlite")]
             SourceType::Sqlite => {
-                let config = self.sqlite.ok_or(Error::MissingSourceConfig("sqlite"))?;
+                let config = self
+                    .sqlite
+                    .ok_or_else(|| Error::no_source_config("sqlite"))?;
                 let source = SqliteSource::open(config, &path)?;
                 Ok(Box::new(source) as Box<dyn DataSource<C>>)
             }

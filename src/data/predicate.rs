@@ -3,8 +3,10 @@
 use crate::data::{Card, Value};
 use crate::error::{Error, Result};
 
+use itertools::Itertools;
 use logos::{Lexer, Logos};
 use std::collections::HashSet;
+use std::fmt::Display;
 
 #[derive(Debug, Clone)]
 pub enum Predicate {
@@ -31,6 +33,15 @@ enum AnyValue {
 pub enum SetValue {
     IntSet(HashSet<i64>),
     StrSet(HashSet<String>),
+}
+
+impl Display for SetValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IntSet(vs) => write!(f, "({})", vs.iter().join(", ")),
+            Self::StrSet(vs) => write!(f, "({})", vs.iter().join(", ")),
+        }
+    }
 }
 
 impl From<HashSet<i64>> for SetValue {
@@ -191,16 +202,8 @@ impl Operator {
             (Self::Ge, AnyValue::Unit(v)) => Ok(Predicate::Ge(key, v)),
             (Self::In, AnyValue::Set(v)) => Ok(Predicate::In(key, v)),
             (Self::Like, AnyValue::Unit(v)) => Ok(Predicate::Like(key, v)),
-            (Self::In, AnyValue::Unit(v)) => Err(Error::InvalidOperand(
-                self.to_string(),
-                "a set".to_string(),
-                format!("{v:?}"),
-            )),
-            (_, AnyValue::Set(v)) => Err(Error::InvalidOperand(
-                self.to_string(),
-                "a single value".to_string(),
-                format!("{v:?}"),
-            )),
+            (Self::In, AnyValue::Unit(v)) => Err(Error::predicate_operand(self, "a set", v)),
+            (_, AnyValue::Set(v)) => Err(Error::predicate_operand(self, "a single value", v)),
         }
     }
 }
@@ -316,7 +319,11 @@ macro_rules! action_arm {
         reduce!($self, $ns)
     };
     ($self:ident, $token:ident, error, $err:literal) => {
-        return Err(Error::syntax_error_expecting($err, $self.lex.source(), $self.lex.span().start))
+        return Err(Error::syntax_error_expecting(
+            $err,
+            $self.lex.source(),
+            $self.lex.span().start,
+        ))
     };
     ($self:ident, $token:ident, accept, _) => {
         break
@@ -462,7 +469,7 @@ impl<'src> Parser<'src> {
         let output = self.lex.next();
         match output {
             Some(Ok(x)) => Ok(Some(x)),
-            Some(Err(_)) => Err(Error::ScanError(format!("{:?}", self.lex.slice()))),
+            Some(Err(_)) => Err(Error::scan(self.lex.slice())),
             None => Ok(None),
         }
     }

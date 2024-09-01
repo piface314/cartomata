@@ -24,13 +24,16 @@ pub struct Pipeline<C: Card, D: DecoderFactory<C>, O: OutputMap<C>> {
 
 macro_rules! send {
     ($Variant:ident(from $id:expr) to $tx:expr) => {
-        $tx.send(LogEvent::$Variant($id)).map_err(|e| Error::SendError($id, e.to_string()))
+        $tx.send(LogEvent::$Variant($id))
+            .map_err(|e| Error::thread_send($id, e))
     };
     ($Variant:ident(from $id:expr, $v:expr) to $tx:expr) => {
-        $tx.send(LogEvent::$Variant($id, $v)).map_err(|e| Error::SendError($id, e.to_string()))
+        $tx.send(LogEvent::$Variant($id, $v))
+            .map_err(|e| Error::thread_send($id, e))
     };
     ($Variant:ident($v:expr) to $tx:expr) => {
-        $tx.send(LogEvent::$Variant($v)).map_err(|e| Error::SendError(0, e.to_string()))
+        $tx.send(LogEvent::$Variant($v))
+            .map_err(|e| Error::thread_send(0, e))
     };
 }
 
@@ -82,7 +85,7 @@ impl<C: Card, D: DecoderFactory<C> + 'static, O: OutputMap<C> + 'static> Pipelin
                 thread::spawn(move || {
                     let factory = factory
                         .read()
-                        .map_err(|e| Error::ReadLockError("DecoderFactory", e.to_string()))?;
+                        .map_err(|e| Error::read_lock("decoder factory", e))?;
                     let decoder = factory.create()?;
                     let worker = Worker {
                         id,
@@ -121,7 +124,7 @@ impl<C: Card, D: DecoderFactory<C> + 'static, O: OutputMap<C> + 'static> Pipelin
         send!(Total(total) to tx)?;
 
         for (id, handle) in handles.into_iter().enumerate() {
-            let thread_result = handle.join().map_err(|_| Error::JoinError(id))?;
+            let thread_result = handle.join().map_err(|_| Error::thread_join(id))?;
             if let Err(e) = thread_result {
                 send!(Error(from id + 1, e.to_string()) to tx)?;
             }
@@ -133,19 +136,13 @@ impl<C: Card, D: DecoderFactory<C> + 'static, O: OutputMap<C> + 'static> Pipelin
 
 macro_rules! lock {
     (read $T:literal $lock:expr) => {
-        $lock
-            .read()
-            .map_err(|e| Error::ReadLockError($T, e.to_string()))?
+        $lock.read().map_err(|e| Error::read_lock($T, e))?
     };
     (write $T:literal $lock:expr) => {
-        $lock
-            .read()
-            .map_err(|e| Error::WriteLockError($T, e.to_string()))?
+        $lock.read().map_err(|e| Error::write_lock($T, e))?
     };
     ($T:literal $lock:expr) => {
-        $lock
-            .lock()
-            .map_err(|e| Error::MutexLockError($T, e.to_string()))?
+        $lock.lock().map_err(|e| Error::mutex_lock($T, e))?
     };
 }
 
@@ -165,29 +162,29 @@ impl<C: Card> CardQueue<C> {
     }
 
     pub fn push(&self, card: C) -> Result<()> {
-        let queue = lock!("CardQueue" self.queue);
+        let queue = lock!("card queue" self.queue);
         let mut queue = self
             .cond
             .wait_while(queue, |(q, _)| q.len() >= self.capacity)
-            .map_err(|e| Error::MutexLockError("CardQueue", e.to_string()))?;
+            .map_err(|e| Error::mutex_lock("card queue", e))?;
         queue.0.push_back(card);
         self.cond.notify_one();
         Ok(())
     }
 
     pub fn pop(&self) -> Result<Option<C>> {
-        let queue = lock!("CardQueue" self.queue);
+        let queue = lock!("card queue" self.queue);
         let mut queue = self
             .cond
             .wait_while(queue, |(q, done)| q.is_empty() && !*done)
-            .map_err(|e| Error::MutexLockError("CardQueue", e.to_string()))?;
+            .map_err(|e| Error::mutex_lock("card queue", e))?;
         let card = queue.0.pop_front();
         self.cond.notify_all();
         Ok(card)
     }
 
     pub fn done(&self) -> Result<()> {
-        let mut queue = lock!("CardQueue" self.queue);
+        let mut queue = lock!("card queue" self.queue);
         (*queue).1 = true;
         self.cond.notify_all();
         Ok(())
@@ -207,9 +204,9 @@ struct Worker<C: Card, D: Decoder<C>, O: OutputMap<C>> {
 
 impl<C: Card, D: Decoder<C>, O: OutputMap<C>> Worker<C, D, O> {
     pub fn run(&self) -> Result<()> {
-        let img_map = lock!(read "ImageMap" self.img_map);
-        let font_map = lock!(read "FontMap" self.font_map);
-        let img_backend = lock!(read "ImgBackend" self.img_backend);
+        let img_map = lock!(read "image map" self.img_map);
+        let font_map = lock!(read "font map" self.font_map);
+        let img_backend = lock!(read "image backend" self.img_backend);
         let ctx = RenderContext {
             img_map: &img_map,
             font_map: &font_map,
@@ -228,7 +225,7 @@ impl<C: Card, D: Decoder<C>, O: OutputMap<C>> Worker<C, D, O> {
     }
 
     fn process(&self, card: C, ctx: &RenderContext) -> Result<()> {
-        let out_map = lock!(read "OutputMap" self.out_map);
+        let out_map = lock!(read "output map" self.out_map);
         let path = out_map.path(&card);
         let stack = self.decoder.decode(card)?;
         let img = stack.render(ctx)?;

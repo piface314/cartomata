@@ -21,7 +21,7 @@ pub struct FontMap {
 impl FontMap {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            fc: fontconfig::Fontconfig::new().ok_or(Error::FontConfigInitError)?,
+            fc: fontconfig::Fontconfig::new().ok_or(Error::FontMapInit)?,
             loaded: HashMap::new(),
         })
     }
@@ -64,27 +64,30 @@ impl FontMap {
     ) -> Result<()> {
         let mut pat = Pattern::new(&self.fc);
         let c_family =
-            CString::new(family).map_err(|_| Error::InvalidCString(family.to_string()))?;
+            CString::new(family).map_err(|_| Error::font_load(&key, "family", family))?;
         pat.add_string(sys::constants::FC_FAMILY.as_cstr(), &c_family);
 
         if let Some(style) = style {
             let c_style =
-                CString::new(style).map_err(|_| Error::InvalidCString(style.to_string()))?;
+                CString::new(style).map_err(|_| Error::font_load(&key, "style", style))?;
             pat.add_string(sys::constants::FC_STYLE.as_cstr(), &c_style);
         }
 
-        let name = pat.font_match().name().unwrap_or("").to_string();
+        let name = pat
+            .font_match()
+            .name()
+            .ok_or_else(|| Error::font_unnamed(&key))?
+            .to_string();
         self.loaded.insert(key, name);
         Ok(())
     }
 
-    pub fn load_font_from_file(&mut self, key: String, fp: impl AsRef<Path>) -> Result<()> {
-        let fp = fp.as_ref();
-        let c_fp = CString::new(fp.to_string_lossy().to_string())
-            .map_err(|_| Error::InvalidCString(fp.to_string_lossy().to_string()))?;
+    pub fn load_font_from_file(&mut self, key: String, path: impl AsRef<Path>) -> Result<()> {
+        let fp = path.as_ref().to_string_lossy();
+        let c_fp = CString::new(fp.as_bytes()).map_err(|_| Error::font_load(&key, "path", fp))?;
         let mut pat = self
             .load_pattern_from_file(&c_fp)
-            .ok_or_else(|| Error::LoadFontError(key.clone()))?;
+            .ok_or_else(|| Error::font_file_load(&key, &path))?;
 
         let status = unsafe {
             fontconfig_sys::fontconfig::FcConfigAppFontAddFile(
@@ -93,9 +96,13 @@ impl FontMap {
             )
         };
         if status == 0 {
-            Err(Error::LoadFontError(key.into()))
+            Err(Error::font_file_load(&key, &path))
         } else {
-            let name = pat.font_match().name().unwrap_or("").to_string();
+            let name = pat
+                .font_match()
+                .name()
+                .ok_or_else(|| Error::font_unnamed(&key))?
+                .to_string();
             drop(pat);
             self.loaded.insert(key, name);
             Ok(())
