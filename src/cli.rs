@@ -3,26 +3,25 @@ mod card;
 mod config;
 mod decode;
 mod output;
+mod template;
 
 pub use crate::cli::card::DynCard;
 use crate::cli::config::Config;
-pub use crate::cli::decode::LuaDecoderFactory;
 use crate::cli::output::Resize;
-use crate::data::{DataSource, Predicate, SourceMap, SourceType};
-use crate::error::Result;
+use crate::cli::template::{DynTemplate, SourceType};
+use crate::data::Predicate;
 use crate::pipeline::Pipeline;
 
 use clap::Parser;
-use output::DynOutputMap;
 use std::num::NonZero;
 use std::path::PathBuf;
 
-/// Render card images automatically from code defined templates
+/// Render card images automatically from code defined templates.
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
     #[cfg(target_os = "linux")]
-    /// Template name, corresponding to a folder in ~/.config/cartomata,
+    /// Template name, corresponding to a folder in ~/.cartomata,
     /// or the current folder if omitted.
     pub template: Option<String>,
 
@@ -31,7 +30,7 @@ pub struct Cli {
     /// or the current folder if omitted.
     pub template: Option<String>,
 
-    /// Data source type
+    /// Data source type.
     #[arg(short, long, value_enum)]
     pub source: Option<SourceType>,
 
@@ -39,9 +38,9 @@ pub struct Cli {
     #[arg(short, long)]
     pub input: PathBuf,
 
-    /// Output images path
+    /// Output images path, defaults to the current directory.
     #[arg(short, long)]
-    pub output: PathBuf,
+    pub output: Option<PathBuf>,
 
     /// Optionally filters input data
     #[arg(short, long)]
@@ -51,14 +50,25 @@ pub struct Cli {
     #[arg(long)]
     pub resize: Option<Resize>,
 
+    /// Output image extension, defaults to the first extension
+    /// listed in template configuration.
+    #[arg(long)]
+    pub ext: Option<String>,
+
     /// Number of worker threads
     #[arg(short, long, default_value_t = NonZero::new(4).unwrap())]
     pub workers: NonZero<usize>,
 }
 
-macro_rules! error {
+macro_rules! unwrap {
     ($res:expr) => {
-        $res.unwrap_or_else(|e| panic!("{e}"))
+        $res.unwrap_or_else(|e| {
+            panic!(
+                "{}[ERROR]{} {e}",
+                termion::color::LightRed.fg_str(),
+                termion::style::Reset
+            )
+        })
     };
 }
 
@@ -73,45 +83,22 @@ impl Cli {
         }));
 
         let cli = Self::parse();
-        let (folder, config) = error!(cli.find_config());
-        let (src_map, img_map, font_map, mut out_map) = error!(config.maps(&folder));
+        let (folder, config) = unwrap!(Config::find(cli.template.as_ref()));
 
-        let source = error!(cli.select_source(src_map));
-        let decoder_factory = error!(LuaDecoderFactory::new(folder));
-        cli.configure_output(&mut out_map);
+        let mut template = unwrap!(DynTemplate::from_config(config, folder));
+        template.configure_output(cli.output, cli.resize, cli.ext);
 
         let filter = cli
             .filter
             .as_ref()
-            .map(|f| error!(Predicate::from_string(f)));
+            .map(|f| unwrap!(Predicate::from_string(f)));
 
-        let pipeline = error!(Pipeline::new(
-            cli.workers,
-            source,
-            decoder_factory,
-            img_map,
-            font_map,
-            out_map
-        ));
-
-        error!(pipeline.run(filter));
-    }
-
-    fn find_config(&self) -> Result<(PathBuf, Config)> {
-        Config::find(self.template.as_ref().map(|s| s.as_str()))
-    }
-
-    fn select_source(
-        &self,
-        src_map: SourceMap,
-    ) -> Result<Box<(dyn DataSource<DynCard> + 'static)>> {
-        src_map.select::<DynCard>(self.source, &self.input)
-    }
-
-    fn configure_output(&self, out_map: &mut DynOutputMap) {
-        if let Some(resize) = self.resize {
-            out_map.resize = resize;
+        let pipeline = Pipeline::new(template);
+        let source_key = (cli.source, cli.input);
+        if cli.workers.get() > 1 {
+            unwrap!(pipeline.run_parallel_with_logs(cli.workers, source_key, filter));
+        } else {
+            unwrap!(pipeline.run_with_logs(source_key, filter));
         }
-        out_map.prefix = Some(self.output.clone());
     }
 }
