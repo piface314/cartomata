@@ -1,40 +1,66 @@
 use crate::cli::card::DynCard;
 use crate::error::Result;
 use crate::image::ImgBackend;
-use crate::image::OutputMap;
 
 use libvips::VipsImage;
 use regex::Regex;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer};
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 
-pub struct DynOutputMap {
-    pub prefix: Option<PathBuf>,
+pub struct OutputMap {
+    pub prefix: PathBuf,
     pub resize: Resize,
     pub pattern: String,
+    pub ext: String,
 }
 
-impl OutputMap<DynCard> for DynOutputMap {
-    fn path(&self, card: &DynCard) -> PathBuf {
-        let re = Regex::new(r"\{([^}]+)\}").unwrap();
-        let suffix = 
-            re.replace_all(self.pattern.as_str(), |captures: &regex::Captures| {
-                card.0
-                    .get(captures.get(1).unwrap().as_str())
-                    .map(|v| v.to_string())
-                    .unwrap_or_default()
-            })
-            .to_string();
-        let mut path = self.prefix.as_ref().map(|p| p.clone()).unwrap_or_else(PathBuf::new);
-        path.push(suffix);
-        path
+impl OutputMap {
+    pub fn new(pattern: String) -> Self {
+        Self {
+            prefix: PathBuf::new(),
+            resize: Resize::default(),
+            pattern,
+            ext: String::from("png"),
+        }
     }
 
-    fn write(&self, ib: &ImgBackend, img: &VipsImage, path: impl AsRef<Path>) -> Result<()> {
+    pub fn set_prefix(&mut self, prefix: Option<PathBuf>) {
+        if let Some(prefix) = prefix {
+            self.prefix = prefix;
+        }
+    }
+
+    pub fn set_resize(&mut self, resize: Option<Resize>) {
+        if let Some(resize) = resize {
+            self.resize = resize;
+        }
+    }
+
+    pub fn set_ext(&mut self, ext: Option<String>) {
+        if let Some(ext) = ext {
+            self.ext = ext;
+        }
+    }
+
+    pub fn identify(&self, card: &DynCard) -> String {
+        let re = Regex::new(r"\{([^}]+)\}").unwrap();
+        re.replace_all(self.pattern.as_str(), |captures: &regex::Captures| {
+            card.0
+                .get(captures.get(1).unwrap().as_str())
+                .map(|v| v.to_string())
+                .unwrap_or_default()
+        })
+        .to_string()
+    }
+
+    pub fn write(&self, card: &DynCard, img: &VipsImage, ib: &ImgBackend) -> Result<()> {
         let img = ib.scale_to(img, self.resize.width, self.resize.height)?;
+        let mut path = self.prefix.clone();
+        path.push(self.identify(card));
+        path.set_extension(self.ext.clone());
         ib.write(&img, path)
     }
 }
@@ -48,9 +74,7 @@ pub struct Resize {
 impl FromStr for Resize {
     type Err = &'static str;
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        let re =
-            Regex::new(r"^(\d+)?\s*x\s*(\d+)?$")
-                .unwrap();
+        let re = Regex::new(r"^(\d+)?\s*x\s*(\d+)?$").unwrap();
 
         let captures = re
             .captures(s)
@@ -71,8 +95,9 @@ impl<'de> Visitor<'de> for ResizeVisitor {
     }
 
     fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
-        where
-            E: de::Error, {
+    where
+        E: de::Error,
+    {
         v.parse::<Resize>().map_err(|e| E::custom(e))
     }
 }
@@ -85,4 +110,3 @@ impl<'de> Deserialize<'de> for Resize {
         deserializer.deserialize_str(ResizeVisitor)
     }
 }
-

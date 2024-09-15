@@ -1,9 +1,5 @@
-use libvips::VipsImage;
-
-use crate::data::Card;
 use crate::error::{Error, Result};
 use crate::image::color::Color;
-use crate::image::ImgBackend;
 
 use std::path::{Path, PathBuf};
 
@@ -46,12 +42,5 @@ impl ImageMap {
         let mut path = self.artwork_folder.clone();
         path.push(key);
         path
-    }
-}
-
-pub trait OutputMap<C: Card>: Sync + Send {
-    fn path(&self, card: &C) -> PathBuf;
-    fn write(&self, ib: &ImgBackend, img: &VipsImage, path: impl AsRef<Path>) -> Result<()> {
-        ib.write(img, path)
     }
 }
