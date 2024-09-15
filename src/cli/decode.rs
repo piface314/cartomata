@@ -2,7 +2,7 @@
 
 use crate::abox::AliasBox;
 use crate::cli::DynCard;
-use crate::decode::{Decoder, DecoderFactory};
+use crate::decode::Decoder;
 use crate::error::{Error, Result};
 use crate::layer::{ArtworkLayer, AssetLayer, LabelLayer, TextLayer};
 use crate::layer::{Layer, LayerStack};
@@ -27,10 +27,8 @@ impl LuaDecoderFactory {
             .map_err(|e| Error::decoder_open(path, e))?;
         Ok(Self { folder, chunk })
     }
-}
 
-impl DecoderFactory<DynCard> for LuaDecoderFactory {
-    fn create(&self) -> Result<impl Decoder<DynCard>> {
+    pub fn create(&self) -> Result<LuaDecoder> {
         LuaDecoder::new(&self.folder, &self.chunk)
     }
 }
@@ -144,11 +142,10 @@ impl<'lua> FromLua<'lua> for Box<dyn Layer> {
 }
 
 impl Decoder<DynCard> for LuaDecoder {
-    fn decode(&self, card: DynCard) -> Result<LayerStack> {
-        let DynCard(card_data) = card;
+    fn decode(&self, card: &DynCard) -> Result<LayerStack> {
         let layers: Variadic<Box<dyn Layer>> = self
             .decode
-            .call(card_data)
+            .call(card.0.clone())
             .map_err(Error::decode)?;
         Ok(LayerStack(layers.into_iter().collect()))
     }
