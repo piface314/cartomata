@@ -1,136 +1,279 @@
-use crate::data::{Card, DataSource, Predicate};
-use crate::decode::{Decoder, DecoderFactory};
+use crate::data::{Card, Predicate};
+use crate::decode::Decoder;
 use crate::error::{Error, Result};
-use crate::image::{ImageMap, ImgBackend, OutputMap};
+use crate::image::ImgBackend;
 use crate::layer::RenderContext;
-use crate::logs::{LogEvent, ProgressBar};
-use crate::text::FontMap;
+use crate::logs::{LogMsg, ProgressBar};
+use crate::template::Template;
 
 use std::collections::VecDeque;
+use std::marker::PhantomData;
 use std::num::NonZero;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc, Condvar, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 
-pub struct Pipeline<C: Card, D: DecoderFactory<C>, O: OutputMap<C>> {
-    n_workers: usize,
-    source: Box<dyn DataSource<C>>,
-    decoder_factory: D,
-    img_map: ImageMap,
-    font_map: FontMap,
-    img_backend: ImgBackend,
-    out_map: O,
+pub struct Pipeline<C: Card, T: Template<C>> {
+    template: T,
+    _card: PhantomData<C>,
 }
 
-macro_rules! send {
-    ($Variant:ident(from $id:expr) to $tx:expr) => {
-        $tx.send(LogEvent::$Variant($id))
-            .map_err(|e| Error::thread_send($id, e))
-    };
-    ($Variant:ident(from $id:expr, $v:expr) to $tx:expr) => {
-        $tx.send(LogEvent::$Variant($id, $v))
-            .map_err(|e| Error::thread_send($id, e))
-    };
-    ($Variant:ident($v:expr) to $tx:expr) => {
-        $tx.send(LogEvent::$Variant($v))
-            .map_err(|e| Error::thread_send(0, e))
-    };
+pub type CardResult<C> = std::result::Result<C, (Option<C>, Error)>;
+
+pub enum WorkerMsg<C: Card> {
+    Total {
+        n: usize,
+    },
+    IterStart {
+        index: usize,
+        card_id: String,
+        worker: usize,
+    },
+    IterErr {
+        index: usize,
+        card_id: String,
+        card: Option<C>,
+        error: Error,
+        worker: usize,
+    },
+    IterOk {
+        index: usize,
+        card_id: String,
+        card: C,
+        worker: usize,
+    },
+    Err {
+        error: Error,
+        worker: usize,
+    },
+    Ok {
+        worker: usize,
+    },
 }
 
-impl<C: Card, D: DecoderFactory<C> + 'static, O: OutputMap<C> + 'static> Pipeline<C, D, O> {
-    pub fn new(
-        n_workers: NonZero<usize>,
-        source: Box<dyn DataSource<C>>,
-        decoder_factory: D,
-        img_map: ImageMap,
-        font_map: FontMap,
-        out_map: O,
-    ) -> Result<Self> {
-        let av_workers = thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
-        let n_workers = n_workers.get().clamp(1, av_workers);
-        Ok(Self {
-            n_workers,
-            source,
-            decoder_factory,
-            img_map,
-            font_map,
-            img_backend: ImgBackend::new()?,
-            out_map,
-        })
+impl<C: Card> WorkerMsg<C> {
+    fn log_iter_start(
+        tx: &Sender<LogMsg>,
+        index: usize,
+        card: &C,
+        template: &impl Template<C>,
+    ) -> Result<()> {
+        let card_id = template.identify(&card);
+        Self::IterStart { index, card_id, worker: 0 }.log(tx)
     }
 
-    pub fn run(mut self, filter: Option<Predicate>) -> Result<()> {
-        let n_workers = self.n_workers;
-        let queue = Arc::new(CardQueue::new(n_workers * 2));
-        let factory = Arc::new(RwLock::new(self.decoder_factory));
-        let img_map = Arc::new(RwLock::new(self.img_map));
-        let img_backend = Arc::new(RwLock::new(self.img_backend));
-        let font_map = Arc::new(RwLock::new(self.font_map));
-        let out_map = Arc::new(RwLock::new(self.out_map));
-        let (tx, rx) = mpsc::channel();
+    fn log_iter_read_err(tx: &Sender<LogMsg>, index: usize, error: Error) -> Result<()> {
+        Self::IterErr { index, card_id: String::new(), card: None, error, worker: 0 }.log(tx)
+    }
 
-        let handles: Vec<JoinHandle<Result<()>>> = (1..=n_workers)
-            .map(|id| {
-                let tx = tx.clone();
-                let queue = queue.clone();
-                let factory = factory.clone();
-                let img_map = img_map.clone();
-                let out_map = out_map.clone();
-                let img_backend = img_backend.clone();
-                let img_map = img_map.clone();
-                let font_map = font_map.clone();
+    fn log_iter_err(
+        tx: &Sender<LogMsg>,
+        index: usize,
+        card: C,
+        template: &impl Template<C>,
+        error: Error,
+    ) -> Result<()> {
+        let card_id = template.identify(&card);
+        Self::IterErr { index, card_id, card: Some(card), error, worker: 0 }.log(tx)
+    }
 
-                thread::spawn(move || {
-                    let factory = factory
-                        .read()
-                        .map_err(|e| Error::read_lock("decoder factory", e))?;
-                    let decoder = factory.create()?;
-                    let worker = Worker {
-                        id,
-                        tx,
-                        queue,
-                        decoder,
-                        img_backend,
-                        img_map,
-                        font_map,
-                        out_map,
-                    };
-                    worker.run()
-                })
+    fn log_iter_ok(
+        tx: &Sender<LogMsg>,
+        index: usize,
+        card: C,
+        template: &impl Template<C>,
+    ) -> Result<()> {
+        let card_id = template.identify(&card);
+        Self::IterOk { index, card_id, card, worker: 0 }.log(tx)
+    }
+
+    fn log_err(tx: &Sender<LogMsg>, error: Error) -> Result<()> {
+        Self::Err { error, worker: 0 }.log(tx)
+    }
+
+    fn log_ok(tx: &Sender<LogMsg>) -> Result<()> {
+        Self::Ok { worker: 0 }.log(tx)
+    }
+
+    fn log(self, tx: &Sender<LogMsg>) -> Result<()> {
+        let (id, msg) = match self {
+            Self::Total { n } => (0, LogMsg::Total(n)),
+            Self::IterStart { index, card_id, worker } => (
+                worker,
+                LogMsg::Running(worker, format!("processing card {card_id} (#{index})...")),
+            ),
+            Self::IterErr { index, card: None, error, worker, .. } => (
+                worker,
+                LogMsg::Warn(worker, format!("failed to read card (#{index}): {error}")),
+            ),
+            Self::IterErr { index, card_id, card: Some(_), error, worker } => (
+                worker,
+                LogMsg::Warn(
+                    worker,
+                    format!("failed to process card {card_id} (#{index}): {error}"),
+                ),
+            ),
+            Self::IterOk { worker, .. } => (worker, LogMsg::Progress(worker)),
+            Self::Ok { worker } => (worker, LogMsg::Success(worker, "done!".to_string())),
+            Self::Err { error, worker } => (worker, LogMsg::Error(worker, error.to_string())),
+        };
+        tx.send(msg).map_err(|e| Error::thread_send(id, e))
+    }
+}
+
+macro_rules! unwrapc {
+    ($v:expr) => {
+        match $v {
+            Ok(x) => x,
+            Err(error) => return Err((None, error)),
+        }
+    };
+    ($v:expr; with ($card:expr)) => {
+        match $v {
+            Ok(x) => x,
+            Err(error) => return Err((Some($card), error)),
+        }
+    };
+    ($v:expr; with ($index:expr) to $tx:expr) => {
+        match $v {
+            Ok(x) => x,
+            Err(error) => {
+                WorkerMsg::<C>::log_iter_read_err($tx, $index, error)?;
+                continue;
+            }
+        }
+    };
+    ($v:expr; with ($index:expr, $card:expr, $template:expr) to $tx:expr) => {
+        match $v {
+            Ok(x) => x,
+            Err(error) => {
+                WorkerMsg::log_iter_err($tx, $index, $card, $template, error)?;
+                continue;
+            }
+        }
+    };
+}
+
+impl<C: Card, T: Template<C>> Pipeline<C, T> {
+    pub fn new(template: T) -> Self {
+        Self { template, _card: PhantomData }
+    }
+
+    pub fn run(
+        self,
+        source_key: T::SourceKey,
+        filter: Option<Predicate>,
+    ) -> Result<Vec<CardResult<C>>> {
+        let template = self.template;
+        let mut source = template.source(source_key)?;
+        let decoder = template.decoder()?;
+        let font_map = template.fonts();
+        let img_map = template.resources();
+        let backend = ImgBackend::new()?;
+        let ctx = RenderContext { backend: &backend, font_map, img_map };
+        let res = source
+            .read(filter)?
+            .map(|card_res| {
+                let card = unwrapc!(card_res);
+                let layers = unwrapc!(decoder.decode(&card); with (card));
+                let img = unwrapc!(layers.render(&ctx); with (card));
+                unwrapc!(template.output(&card, &img, &backend); with (card));
+                Ok(card)
             })
             .collect();
+        Ok(res)
+    }
 
-        thread::spawn(move || {
-            let mut pbar = ProgressBar::new_stderr(NonZero::new(n_workers).unwrap()).unwrap();
-            loop {
-                if let Ok(log) = rx.try_recv() {
-                    pbar.log(log).unwrap();
-                }
-                pbar.update().unwrap();
-            }
-        });
-
-        let mut total: usize = 0;
-        for card in self.source.read(filter)? {
-            total += 1;
-            match card {
-                Ok(card) => queue.push(card)?,
-                Err(e) => send!(Warn(from 0, e.to_string()) to tx)?,
-            }
+    pub fn run_with_logs(self, source_key: T::SourceKey, filter: Option<Predicate>) -> Result<()> {
+        let (tx, handle) = ProgressBar::spawn_stderr(0);
+        match Self::run_with_logs_internal(&tx, self.template, source_key, filter) {
+            Ok(()) => WorkerMsg::<C>::log_ok(&tx)?,
+            Err(e) => WorkerMsg::<C>::log_err(&tx, e)?,
         }
-        queue.done()?;
-        send!(Total(total) to tx)?;
+        drop(tx);
+        handle.join().map_err(|_| Error::thread_join(0))?
+    }
 
-        for (id, handle) in handles.into_iter().enumerate() {
-            let thread_result = handle.join().map_err(|_| Error::thread_join(id))?;
-            if let Err(e) = thread_result {
-                send!(Error(from id + 1, e.to_string()) to tx)?;
-            }
+    pub fn run_with_logs_internal(
+        tx: &Sender<LogMsg>,
+        template: T,
+        source_key: T::SourceKey,
+        filter: Option<Predicate>,
+    ) -> Result<()> {
+        let mut source = template.source(source_key)?;
+        let decoder = template.decoder()?;
+        let font_map = template.fonts();
+        let img_map = template.resources();
+        let backend = ImgBackend::new()?;
+        let ctx = RenderContext { backend: &backend, font_map, img_map };
+        for (index, card) in source.read(filter)?.enumerate() {
+            let card = unwrapc!(card; with (index) to tx);
+            WorkerMsg::log_iter_start(tx, index, &card, &template)?;
+            let layers = unwrapc!(decoder.decode(&card); with (index, card, &template) to tx);
+            let img = unwrapc!(layers.render(&ctx); with (index, card, &template) to tx);
+            unwrapc!(template.output(&card, &img, &backend); with (index, card, &template) to tx);
+            WorkerMsg::log_iter_ok(tx, index, card, &template)?;
         }
-        send!(Done(from 0, "done!".into()) to tx)?;
         Ok(())
+    }
+}
+
+impl<C: Card + Send> WorkerMsg<C> {
+    fn send_total(tx: &Sender<Self>, n: usize) -> Result<()> {
+        tx.send(Self::Total { n })
+            .map_err(|e| Error::thread_send(0, e))
+    }
+
+    fn send_iter_start(
+        tx: &Sender<Self>,
+        worker: usize,
+        index: usize,
+        card: &C,
+        template: &impl Template<C>,
+    ) -> Result<()> {
+        let card_id = template.identify(card);
+        tx.send(Self::IterStart { index, card_id, worker })
+            .map_err(|e| Error::thread_send(0, e))
+    }
+
+    fn send_iter_read_err(tx: &Sender<Self>, index: usize, error: Error) -> Result<()> {
+        tx.send(Self::IterErr { index, card_id: String::new(), card: None, error, worker: 0 })
+            .map_err(|e| Error::thread_send(0, e))
+    }
+
+    fn send_iter_err(
+        tx: &Sender<Self>,
+        worker: usize,
+        index: usize,
+        card: C,
+        template: &impl Template<C>,
+        error: Error,
+    ) -> Result<()> {
+        let card_id = template.identify(&card);
+        tx.send(Self::IterErr { index, card_id, card: Some(card), error, worker })
+            .map_err(|e| Error::thread_send(0, e))
+    }
+
+    fn send_iter_ok(
+        tx: &Sender<Self>,
+        worker: usize,
+        index: usize,
+        card: C,
+        template: &impl Template<C>,
+    ) -> Result<()> {
+        let card_id = template.identify(&card);
+        tx.send(Self::IterOk { index, card_id, card, worker })
+            .map_err(|e| Error::thread_send(0, e))
+    }
+
+    fn send_ok(tx: &Sender<Self>, worker: usize) -> Result<()> {
+        tx.send(Self::Ok { worker })
+            .map_err(|e| Error::thread_send(0, e))
+    }
+
+    fn send_err(tx: &Sender<Self>, worker: usize, error: Error) -> Result<()> {
+        tx.send(Self::Err { error, worker })
+            .map_err(|e| Error::thread_send(0, e))
     }
 }
 
@@ -146,90 +289,188 @@ macro_rules! lock {
     };
 }
 
+impl<C: Card + Send, T: Template<C> + Send + Sync + 'static> Pipeline<C, T> {
+    pub fn run_parallel(
+        self,
+        n_workers: NonZero<usize>,
+        source_key: T::SourceKey,
+        filter: Option<Predicate>,
+    ) -> Result<(Receiver<WorkerMsg<C>>, Vec<JoinHandle<Result<()>>>)> {
+        let nw = Self::check_n_workers(n_workers);
+        let queue = Arc::new(CardQueue::<C>::new(nw * 2));
+        let img_backend = Arc::new(RwLock::new(ImgBackend::new()?));
+        let template = Arc::new(RwLock::new(self.template));
+        let (tx, rx) = mpsc::channel();
+
+        let handle = {
+            let tx = tx.clone();
+            let queue = queue.clone();
+            let template = lock!(read "template" template);
+            let mut source = template.source(source_key)?;
+            thread::spawn(move || {
+                let mut total: usize = 0;
+                for (index, card) in source.read(filter)?.enumerate() {
+                    total += 1;
+                    match card {
+                        Ok(card) => queue.push(index, card)?,
+                        Err(e) => WorkerMsg::send_iter_read_err(&tx, index, e)?,
+                    }
+                }
+                queue.done()?;
+                WorkerMsg::send_total(&tx, total)
+            })
+        };
+        let mut workers = Vec::with_capacity(nw + 1);
+        workers.push(handle);
+
+        for id in 1..=nw {
+            let tx = tx.clone();
+            let queue = queue.clone();
+            let template = template.clone();
+            let img_backend = img_backend.clone();
+
+            let handle = thread::spawn(move || {
+                let worker = Worker { id, tx: tx.clone(), queue, template, img_backend };
+                match worker.run() {
+                    Ok(()) => WorkerMsg::send_ok(&tx, id),
+                    Err(error) => WorkerMsg::send_err(&tx, id, error),
+                }
+            });
+            workers.push(handle);
+        }
+        Ok((rx, workers))
+    }
+
+    pub fn run_parallel_with_logs(
+        self,
+        n_workers: NonZero<usize>,
+        source_key: T::SourceKey,
+        filter: Option<Predicate>,
+    ) -> Result<()> {
+        let (rx, workers) = self.run_parallel(n_workers, source_key, filter)?;
+        let (tx, handle) = ProgressBar::spawn_stderr(workers.len() - 1);
+        while let Ok(event) = rx.recv() {
+            event.log(&tx)?;
+        }
+        for (i, worker) in workers.into_iter().enumerate() {
+            match worker.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tx
+                    .send(LogMsg::Error(i, e.to_string()))
+                    .map_err(|e| Error::thread_send(0, e))?,
+                Err(_) => tx
+                    .send(LogMsg::Error(i, Error::Unknown.to_string()))
+                    .map_err(|e| Error::thread_send(0, e))?,
+            }
+        }
+        tx.send(LogMsg::Success(0, "done!".to_string()))
+            .map_err(|e| Error::thread_send(0, e))?;
+        drop(tx);
+        handle.join().map_err(|_| Error::thread_join(0))?
+    }
+
+    fn check_n_workers(n_workers: NonZero<usize>) -> usize {
+        let av_workers = thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        n_workers.get().clamp(1, av_workers)
+    }
+}
+
 struct CardQueue<C: Card> {
-    queue: Mutex<(VecDeque<C>, bool)>,
+    queue: Mutex<CardQueueState<C>>,
     capacity: usize,
     cond: Condvar,
 }
 
+struct CardQueueState<C: Card> {
+    queue: VecDeque<(usize, C)>,
+    done: bool,
+}
+
+impl<C: Card> CardQueueState<C> {
+    fn new(capacity: usize) -> Self {
+        Self { queue: VecDeque::with_capacity(capacity), done: false }
+    }
+}
+
 impl<C: Card> CardQueue<C> {
-    pub fn new(capacity: usize) -> Self {
+    fn new(capacity: usize) -> Self {
         Self {
-            queue: Mutex::new((VecDeque::with_capacity(capacity), false)),
+            queue: Mutex::new(CardQueueState::new(capacity)),
             capacity,
             cond: Condvar::new(),
         }
     }
 
-    pub fn push(&self, card: C) -> Result<()> {
-        let queue = lock!("card queue" self.queue);
-        let mut queue = self
+    fn push(&self, index: usize, card: C) -> Result<()> {
+        let state = lock!("card queue" self.queue);
+        let mut state = self
             .cond
-            .wait_while(queue, |(q, _)| q.len() >= self.capacity)
+            .wait_while(state, |s| s.queue.len() >= self.capacity)
             .map_err(|e| Error::mutex_lock("card queue", e))?;
-        queue.0.push_back(card);
+        state.queue.push_back((index, card));
         self.cond.notify_one();
         Ok(())
     }
 
-    pub fn pop(&self) -> Result<Option<C>> {
-        let queue = lock!("card queue" self.queue);
-        let mut queue = self
+    fn pop(&self) -> Result<Option<(usize, C)>> {
+        let state = lock!("card queue" self.queue);
+        let mut state = self
             .cond
-            .wait_while(queue, |(q, done)| q.is_empty() && !*done)
+            .wait_while(state, |s| s.queue.is_empty() && !s.done)
             .map_err(|e| Error::mutex_lock("card queue", e))?;
-        let card = queue.0.pop_front();
+        let card = state.queue.pop_front();
         self.cond.notify_all();
         Ok(card)
     }
 
-    pub fn done(&self) -> Result<()> {
-        let mut queue = lock!("card queue" self.queue);
-        (*queue).1 = true;
+    fn done(&self) -> Result<()> {
+        let mut state = lock!("card queue" self.queue);
+        state.done = true;
         self.cond.notify_all();
         Ok(())
     }
 }
 
-struct Worker<C: Card, D: Decoder<C>, O: OutputMap<C>> {
+struct Worker<C: Card, T: Template<C>> {
     pub id: usize,
-    pub tx: Sender<LogEvent>,
+    pub tx: Sender<WorkerMsg<C>>,
     pub queue: Arc<CardQueue<C>>,
-    pub decoder: D,
-    pub img_map: Arc<RwLock<ImageMap>>,
-    pub font_map: Arc<RwLock<FontMap>>,
+    pub template: Arc<RwLock<T>>,
     pub img_backend: Arc<RwLock<ImgBackend>>,
-    pub out_map: Arc<RwLock<O>>,
 }
 
-impl<C: Card, D: Decoder<C>, O: OutputMap<C>> Worker<C, D, O> {
-    pub fn run(&self) -> Result<()> {
-        let img_map = lock!(read "image map" self.img_map);
-        let font_map = lock!(read "font map" self.font_map);
+impl<C: Card + Send, T: Template<C>> Worker<C, T> {
+    fn run(&self) -> Result<()> {
+        let template = lock!(read "template" self.template);
         let img_backend = lock!(read "image backend" self.img_backend);
         let ctx = RenderContext {
-            img_map: &img_map,
-            font_map: &font_map,
+            img_map: template.resources(),
+            font_map: template.fonts(),
             backend: &img_backend,
         };
-        while let Some(card) = self.queue.pop()? {
-            let card_id = card.get("id");
-            send!(Status(from self.id, format!("processing card `{card_id}`...")) to self.tx)?;
-            match self.process(card, &ctx) {
-                Ok(()) => send!(Count(from self.id) to self.tx)?,
-                Err(e) => send!(Warn(from self.id, e.to_string()) to self.tx)?,
+        let decoder = template.decoder()?;
+        while let Some((index, card)) = self.queue.pop()? {
+            WorkerMsg::send_iter_start(&self.tx, self.id, index, &card, &*template)?;
+            match self.process(&template, &decoder, &card, &ctx) {
+                Ok(()) => WorkerMsg::send_iter_ok(&self.tx, self.id, index, card, &*template)?,
+                Err(e) => WorkerMsg::send_iter_err(&self.tx, self.id, index, card, &*template, e)?,
             }
         }
-        send!(Done(from self.id, "done!".to_string()) to self.tx)?;
         Ok(())
     }
 
-    fn process(&self, card: C, ctx: &RenderContext) -> Result<()> {
-        let out_map = lock!(read "output map" self.out_map);
-        let path = out_map.path(&card);
-        let stack = self.decoder.decode(card)?;
+    fn process(
+        &self,
+        template: &T,
+        decoder: &T::Decoder,
+        card: &C,
+        ctx: &RenderContext,
+    ) -> Result<()> {
+        let stack = decoder.decode(card)?;
         let img = stack.render(ctx)?;
-        out_map.write(&ctx.backend, &img, path)?;
+        template.output(card, &img, &ctx.backend)?;
         Ok(())
     }
 }
