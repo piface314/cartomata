@@ -1,23 +1,25 @@
-use std::io::{stderr, Error as IoError, Stderr, Write};
-use std::num::NonZero;
-use std::time::Instant;
+use crate::error::Error;
 
-#[derive(Debug, Clone)]
-pub enum LogEvent {
-    Count(usize),
+use std::io::{stderr, Error as IoError, Stderr, Write};
+use std::sync::mpsc::{self, Sender, TryRecvError};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
+
+pub enum LogMsg {
     Total(usize),
+    Progress(usize),
     Info(usize, String),
     Warn(usize, String),
-    Status(usize, String),
+    Running(usize, String),
     Error(usize, String),
-    Done(usize, String),
+    Success(usize, String),
 }
 
 #[derive(Debug, Clone)]
 enum WorkerStatus {
     Running(String),
-    Failed(String),
-    Done(String),
+    Error(String),
+    Success(String),
 }
 
 impl Default for WorkerStatus {
@@ -27,7 +29,7 @@ impl Default for WorkerStatus {
 }
 
 #[derive(Debug, Clone)]
-pub struct ProgressBar<T: Write> {
+pub struct ProgressBar<T: Write + Send> {
     n_workers: usize,
     tty: T,
     status: Vec<WorkerStatus>,
@@ -38,20 +40,61 @@ pub struct ProgressBar<T: Write> {
 }
 
 impl ProgressBar<Stderr> {
-    pub fn new_stderr(n_workers: NonZero<usize>) -> Result<Self, IoError> {
+    pub fn new_stderr(n_workers: usize) -> Result<Self, Error> {
         Self::new(n_workers, stderr())
+    }
+
+    pub fn spawn_stderr(n_workers: usize)-> (Sender<LogMsg>, JoinHandle<Result<(), Error>>) {
+        Self::spawn(n_workers, stderr())
     }
 }
 
-impl<T: Write> ProgressBar<T> {
+impl<T: Write + Send + 'static> ProgressBar<T> {
     const BAR_WIDTH: usize = 16;
     const WORKER_BAR_WIDTH: usize = 8;
     const WORKER_BAR_FACTOR: usize = 3;
     const FRAME_DURATION: f64 = 0.1;
     const FRAME_COUNT: usize = 256;
 
-    pub fn new(n_workers: NonZero<usize>, tty: T) -> Result<Self, IoError> {
-        let n_workers = n_workers.get();
+    pub fn spawn(n_workers: usize, tty: T) -> (Sender<LogMsg>, JoinHandle<Result<(), Error>>) {
+        let (tx, rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            let mut pbar = Self::new(n_workers, tty)?;
+            loop {
+                match rx.try_recv() {
+                    Ok(LogMsg::Total(id)) => {
+                        pbar.set_total(id);
+                    },
+                    Ok(LogMsg::Progress(id)) => {
+                        pbar.progress(id);
+                    },
+                    Ok(LogMsg::Info(id, msg)) => {
+                        pbar.info(id, msg)?;
+                    },
+                    Ok(LogMsg::Warn(id, msg)) => {
+                        pbar.warn(id, msg)?;
+                    },
+                    Ok(LogMsg::Running(id, msg)) => {
+                        pbar.running(id, msg);
+                    },
+                    Ok(LogMsg::Error(id, msg)) => {
+                        pbar.error(id, msg);
+                    },
+                    Ok(LogMsg::Success(id, msg)) => {
+                        pbar.success(id, msg);
+                    },
+                    Err(TryRecvError::Empty) => thread::sleep(Duration::from_millis(10)),
+                    Err(TryRecvError::Disconnected) => break,
+                }
+                pbar.update()?;
+            }
+            pbar.show().map_err(Error::io_error)
+        });
+        (tx, handle)
+    }
+
+    pub fn new(n_workers: usize, tty: T) -> Result<Self, Error> {
+
         let mut pbar = Self {
             n_workers,
             tty,
@@ -62,9 +105,9 @@ impl<T: Write> ProgressBar<T> {
             time: Instant::now(),
         };
         for _ in 0..=n_workers {
-            write!(pbar.tty, "\n")?;
+            write!(pbar.tty, "\n").map_err(Error::io_error)?;
         }
-        pbar.show()?;
+        pbar.show().map_err(Error::io_error)?;
         Ok(pbar)
     }
 
@@ -72,41 +115,40 @@ impl<T: Write> ProgressBar<T> {
         self.total = total;
     }
 
-    pub fn log(&mut self, event: LogEvent) -> Result<(), IoError> {
-        match event {
-            LogEvent::Info(id, msg) => {
-                self.log_message(id, "INFO", msg, termion::color::LightBlack)?
-            }
-            LogEvent::Warn(id, msg) => {
-                self.log_message(id, "WARN", msg, termion::color::LightYellow)?
-            }
-            LogEvent::Status(id, msg) => {
-                self.status[id] = WorkerStatus::Running(msg);
-            }
-            LogEvent::Error(id, msg) => {
-                self.status[id] = WorkerStatus::Failed(msg);
-            }
-            LogEvent::Done(id, msg) => {
-                self.status[id] = WorkerStatus::Done(msg);
-            }
-            LogEvent::Count(0) => {
-                self.counts[0] += 1;
-            }
-            LogEvent::Count(id) => {
-                self.counts[0] += 1;
-                self.counts[id] += 1;
-            }
-            LogEvent::Total(n) => self.set_total(n),
-        };
-        self.show()?;
-        Ok(())
+    pub fn progress(&mut self, id: usize) {
+        if id > 0 {
+            self.counts[id] += 1;
+        }
+        self.counts[0] += 1;
+    }
+
+    pub fn info(&mut self, id: usize, msg: String) -> Result<(), Error> {
+        self.log_message(id, "INFO", &msg, termion::color::LightBlack)
+            .map_err(Error::io_error)
+    }
+
+    pub fn warn(&mut self, id: usize, msg: String) -> Result<(), Error> {
+        self.log_message(id, "WARN", &msg, termion::color::LightYellow)
+            .map_err(Error::io_error)
+    }
+
+    pub fn running(&mut self, id: usize, msg: String) {
+        self.status[id] = WorkerStatus::Running(msg);
+    }
+
+    pub fn error(&mut self, id: usize, msg: String) {
+        self.status[id] = WorkerStatus::Error(msg);
+    }
+
+    pub fn success(&mut self, id: usize, msg: String) {
+        self.status[id] = WorkerStatus::Success(msg);
     }
 
     fn log_message(
         &mut self,
         id: usize,
         label: &'static str,
-        msg: String,
+        msg: &str,
         color: impl termion::color::Color,
     ) -> Result<(), IoError> {
         let (_w, h) = termion::terminal_size()?;
@@ -124,24 +166,25 @@ impl<T: Write> ProgressBar<T> {
         if id > 0 {
             write!(
                 self.tty,
-                "{up}{goto}{id_color}{id:02} {color}[{label}] {reset}{msg}{clear}"
+                "{up}{goto}{id_color}{id:02} {color}[{label}] {reset}{msg}{clear}\n"
             )?;
         } else {
+            let pad = if self.n_workers > 0 { "   " } else { "" };
             write!(
                 self.tty,
-                "{up}{goto}{id_color}   {color}[{label}] {reset}{msg}{clear}"
+                "{up}{goto}{id_color}{pad}{color}[{label}] {reset}{msg}{clear}\n"
             )?;
         }
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<(), IoError> {
+    pub fn update(&mut self) -> Result<(), Error> {
         let now = Instant::now();
         let dt = now.duration_since(self.time).as_secs_f64();
         if dt >= Self::FRAME_DURATION {
             self.time = now;
             self.frame = (self.frame + 1) % Self::FRAME_COUNT;
-            self.show()?;
+            self.show().map_err(Error::io_error)?;
         }
         Ok(())
     }
@@ -168,12 +211,12 @@ impl<T: Write> ProgressBar<T> {
                 );
                 (arrows, termion::color::Blue.fg_str(), msg)
             }
-            WorkerStatus::Failed(msg) => (
+            WorkerStatus::Error(msg) => (
                 "!".repeat(Self::WORKER_BAR_WIDTH),
                 termion::color::LightRed.fg_str(),
                 msg,
             ),
-            WorkerStatus::Done(msg) => (
+            WorkerStatus::Success(msg) => (
                 "-".repeat(Self::WORKER_BAR_WIDTH),
                 termion::color::LightGreen.fg_str(),
                 msg,
@@ -214,12 +257,12 @@ impl<T: Write> ProgressBar<T> {
                 };
                 (arrows, termion::color::LightBlue.fg_str(), msg)
             }
-            WorkerStatus::Failed(msg) => (
+            WorkerStatus::Error(msg) => (
                 "!".repeat(Self::BAR_WIDTH),
                 termion::color::LightRed.fg_str(),
                 msg,
             ),
-            WorkerStatus::Done(msg) => (
+            WorkerStatus::Success(msg) => (
                 "=".repeat(Self::BAR_WIDTH),
                 termion::color::LightGreen.fg_str(),
                 msg,
@@ -240,7 +283,7 @@ impl<T: Write> ProgressBar<T> {
         Ok(())
     }
 
-    fn ellipsize(s: &String, w: u16, used: u16) -> String {
+    fn ellipsize(s: &str, w: u16, used: u16) -> String {
         let w = w - used;
         let len = s.chars().count();
         if len >= w as usize {
@@ -251,7 +294,7 @@ impl<T: Write> ProgressBar<T> {
                     .collect::<String>()
             )
         } else {
-            s.clone()
+            s.to_string()
         }
     }
 }

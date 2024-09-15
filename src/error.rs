@@ -114,6 +114,10 @@ pub enum Error {
     ThreadJoin {
         worker: usize,
     },
+    IoError {
+        reason: std::io::Error,
+    },
+    Unknown,
 }
 
 impl std::error::Error for Error {}
@@ -224,6 +228,8 @@ impl std::fmt::Display for Error {
                 )
             }
             Error::ThreadJoin { worker } => write!(f, "failed to join thread {worker:02}"),
+            Error::IoError { reason } => write!(f, "i/o error: {reason}"),
+            _ => write!(f, "unexpected error"),
         }
     }
 }
@@ -436,6 +442,14 @@ impl Error {
             desc: str_excerpt(10, i, src),
             expected: None,
         }
+    }
+
+    pub fn io_error(reason: std::io::Error) -> Self {
+        Self::IoError { reason }
+    }
+
+    pub fn unknown() -> Self {
+        Self::Unknown
     }
 }
 
