@@ -9,7 +9,7 @@ mod stroke;
 use crate::error::{Error, Result};
 pub use crate::image::blend::BlendMode;
 pub use crate::image::color::Color;
-pub use crate::image::map::{ImageMap, OutputMap};
+pub use crate::image::map::ImageMap;
 pub use crate::image::origin::{Origin, TextOrigin};
 pub use crate::image::stroke::Stroke;
 use crate::text::attr::{Gravity, ITagAttr, LayoutAttr};
