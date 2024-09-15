@@ -1,14 +1,12 @@
 //! Configuration for dynamic templates.
 
-use crate::cli::output::{DynOutputMap, Resize};
 #[cfg(feature = "csv")]
 use crate::data::source::CsvSourceConfig;
 #[cfg(feature = "sqlite")]
 use crate::data::source::SqliteSourceConfig;
-use crate::data::SourceMap;
 use crate::error::{Error, Result};
-use crate::image::{Color, ImageMap};
-use crate::text::{FontMap, FontPath};
+use crate::image::Color;
+use crate::text::FontPath;
 
 use serde::{
     de::{self, Deserializer, Visitor},
@@ -23,23 +21,23 @@ use std::path::{Path, PathBuf};
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
     #[serde(rename = "template")]
-    base: Base,
-    assets: Option<AssetsConfig>,
-    artwork: Option<ArtworkConfig>,
-    fonts: HashMap<String, FontPath>,
-    source: DataSourceConfig,
+    pub base: Base,
+    pub assets: Option<AssetsConfig>,
+    pub artwork: Option<ArtworkConfig>,
+    pub font: HashMap<String, FontPath>,
+    pub source: DataSourceConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-struct Base {
+pub struct Base {
     pub size: CardSize,
     #[serde(default)]
     pub background: Color,
     #[serde(default = "default_extensions")]
     pub ext: Vec<String>,
-    #[serde(default = "default_out_pattern")]
-    pub out_pattern: String,
+    #[serde(default = "default_identity")]
+    pub identity: String,
 }
 
 fn default_extensions() -> Vec<String> {
@@ -50,24 +48,24 @@ fn default_extensions() -> Vec<String> {
     ]
 }
 
-fn default_out_pattern() -> String {
-    "{id}.png".to_string()
+fn default_identity() -> String {
+    String::from("{id}")
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
-struct CardSize {
+pub struct CardSize {
     pub width: i32,
     pub height: i32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct AssetsConfig {
+pub struct AssetsConfig {
     pub path: Option<PathBuf>,
     pub placeholder: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct ArtworkConfig {
+pub struct ArtworkConfig {
     pub path: PathBuf,
 }
 
@@ -78,11 +76,11 @@ pub struct DataSourceConfig {
 }
 
 impl Config {
-    pub fn find(name: Option<&str>) -> Result<(PathBuf, Self)> {
+    pub fn find(name: Option<&impl AsRef<str>>) -> Result<(PathBuf, Self)> {
         let path = match name {
             Some(name) => {
                 let mut path = Self::config_folder()?;
-                path.push(name);
+                path.push(name.as_ref());
                 path.push("template.toml");
                 path
             }
@@ -102,7 +100,7 @@ impl Config {
             .expect("toml file is inside some folder")
             .to_path_buf();
         let fonts = raw
-            .fonts
+            .font
             .into_iter()
             .map(|(k, v)| (k, Self::prefix_font_path(&folder, v)))
             .collect();
@@ -112,47 +110,10 @@ impl Config {
                 base: raw.base,
                 assets: raw.assets,
                 artwork: raw.artwork,
-                fonts,
+                font: fonts,
                 source: raw.source,
             },
         ))
-    }
-
-    pub fn maps(
-        self,
-        folder: &PathBuf,
-    ) -> Result<(SourceMap, ImageMap, FontMap, DynOutputMap)> {
-        let assets_folder = self.assets_folder(folder);
-
-        let mut src_map = SourceMap::new();
-
-        #[cfg(feature = "csv")]
-        src_map.with_csv(self.source.csv);
-
-        #[cfg(feature = "sqlite")]
-        src_map.with_sqlite(self.source.sqlite);
-
-        let img_map = ImageMap {
-            artwork_folder: self
-                .artwork
-                .map(|cfg| cfg.path)
-                .unwrap_or_else(|| PathBuf::from("artwork")),
-            assets_folder,
-            background: self.base.background,
-            extensions: self.base.ext,
-            card_size: (self.base.size.width, self.base.size.height),
-            placeholder: self.assets.map(|cfg| cfg.placeholder).unwrap_or_default(),
-        };
-
-        let mut font_map = FontMap::new()?;
-        font_map.load(self.fonts)?;
-
-        let out_map = DynOutputMap {
-            prefix: None,
-            resize: Resize::default(),
-            pattern: self.base.out_pattern,
-        };
-        Ok((src_map, img_map, font_map, out_map))
     }
 
     #[cfg(target_os = "windows")]
@@ -167,8 +128,7 @@ impl Config {
     fn config_folder() -> Result<PathBuf> {
         let home = std::env::var("HOME").map_err(|_| Error::no_env_variable("HOME"))?;
         let mut home = PathBuf::from(home);
-        home.push(".config");
-        home.push("cartomata");
+        home.push(".cartomata");
         Ok(home)
     }
 
@@ -183,7 +143,7 @@ impl Config {
         }
     }
 
-    fn assets_folder(&self, folder: &PathBuf) -> PathBuf {
+    pub fn assets_folder(&self, folder: &PathBuf) -> PathBuf {
         let mut path = folder.clone();
         match self.assets.as_ref().and_then(|a| a.path.as_ref()) {
             Some(p) => path.push(p),
