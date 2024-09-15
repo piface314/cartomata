@@ -1,15 +1,26 @@
+//! Implementation of a `Box` for self referential types.
+//! 
+//! Reference: https://morestina.net/blog/1868/self-referential-types-for-fun-and-profit
+
+
+/// Aliasable implementation of `Box`.
+/// 
+/// Provides the same semantics as a Box, but prevents the optimizer from assuming that moving it
+/// invalidates references to its contents
 pub struct AliasBox<T> {
     ptr: *const T,
 }
 
 impl<T> AliasBox<T> {
-    pub fn new(value: T) -> Self {
+    /// Allocates memory on the heap and then places `x` into it.
+    pub fn new(x: T) -> Self {
         Self {
-            ptr: Box::into_raw(Box::new(value)),
+            ptr: Box::into_raw(Box::new(x)),
         }
     }
 
-    pub fn as_ptr(&self) -> *mut T {
+    /// Obtains the inner pointer as mutable.
+    fn as_ptr(&self) -> *mut T {
         self.ptr as *mut T
     }
 }
