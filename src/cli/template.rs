@@ -19,6 +19,7 @@ use libvips::VipsImage;
 use std::path::Path;
 
 pub struct DynTemplate {
+    name: String,
     source_map: SourceMap,
     decoder_factory: LuaDecoderFactory,
     resource_map: ImageMap,
@@ -29,6 +30,7 @@ pub struct DynTemplate {
 impl DynTemplate {
     pub fn from_config(config: Config, folder: PathBuf) -> Result<Self> {
         let assets_folder = config.assets_folder(&folder);
+        let name = config.base.name;
 
         let mut source_map = SourceMap::new();
 
@@ -59,6 +61,7 @@ impl DynTemplate {
         output_map.set_ext(resource_map.extensions.first().cloned());
 
         Ok(Self {
+            name,
             source_map,
             decoder_factory,
             resource_map,
@@ -82,6 +85,10 @@ impl DynTemplate {
 impl Template<DynCard> for DynTemplate {
     type SourceKey = (Option<SourceType>, PathBuf);
     type Decoder = LuaDecoder;
+
+    fn name(&self) -> Option<&str> {
+        Some(&self.name)
+    }
 
     fn source(&self, key: Self::SourceKey) -> Result<Box<dyn DataSource<DynCard>>> {
         self.source_map.select(key.0, key.1)

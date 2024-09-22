@@ -10,6 +10,10 @@ pub trait Template<C: Card> {
     type SourceKey;
     type Decoder: Decoder<C>;
 
+    fn name(&self) -> Option<&str> {
+        None
+    }
+
     fn source(&self, key: Self::SourceKey) -> Result<Box<dyn DataSource<C>>>;
     fn identify(&self, card: &C) -> String;
     fn decoder(&self) -> Result<Self::Decoder>;
