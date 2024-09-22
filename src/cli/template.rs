@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::cli::card::DynCard;
 use crate::cli::config::Config;
 use crate::cli::decode::{LuaDecoder, LuaDecoderFactory};
@@ -16,7 +14,7 @@ use crate::text::FontMap;
 
 use clap::ValueEnum;
 use libvips::VipsImage;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct DynTemplate {
     name: String,
