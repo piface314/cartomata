@@ -108,7 +108,6 @@ pub enum Error {
         reason: String,
     },
     ThreadSend {
-        worker: usize,
         reason: String,
     },
     ThreadJoin {
@@ -132,20 +131,14 @@ impl std::fmt::Display for Error {
             Error::NoEnvVariable { variable } => {
                 write!(f, "missing environment variable `{variable}`")
             }
-            Error::ConfigOpen {
-                path,
-                reason: cause,
-            } => {
+            Error::ConfigOpen { path, reason: cause } => {
                 write!(
                     f,
                     "failed to open template configuration `{}`: {cause}",
                     path.display()
                 )
             }
-            Error::ConfigDeser {
-                path,
-                reason: cause,
-            } => {
+            Error::ConfigDeser { path, reason: cause } => {
                 write!(
                     f,
                     "failed to load template configuration {}: {cause}",
@@ -172,12 +165,7 @@ impl std::fmt::Display for Error {
             Error::TextInvalidAttr { tag, attr } => {
                 write!(f, "invalid {tag} attribute `{attr}`")
             }
-            Error::TextInvalidAttrVal {
-                tag,
-                attr,
-                val,
-                reason,
-            } => write!(
+            Error::TextInvalidAttrVal { tag, attr, val, reason } => write!(
                 f,
                 "failed to parse {val:?} as value for {tag} attribute `{attr}`: {reason}"
             ),
@@ -194,19 +182,11 @@ impl std::fmt::Display for Error {
             Error::ImageConversion { from, to, reason } => {
                 write!(f, "failed to convert image from {from} to {to}: {reason}")
             }
-            Error::SyntaxError {
-                desc,
-                expected: Some(expected),
-            } => write!(f, "syntax error, expected {expected}:\n{desc}"),
-            Error::SyntaxError {
-                desc,
-                expected: None,
-            } => write!(f, "syntax error:\n{desc}"),
-            Error::PredicateOperand {
-                operator,
-                expected,
-                got,
-            } => {
+            Error::SyntaxError { desc, expected: Some(expected) } => {
+                write!(f, "syntax error, expected {expected}:\n{desc}")
+            }
+            Error::SyntaxError { desc, expected: None } => write!(f, "syntax error:\n{desc}"),
+            Error::PredicateOperand { operator, expected, got } => {
                 write!(
                     f,
                     "invalid operand for `{operator}`: expected {expected}, got {got}"
@@ -221,11 +201,8 @@ impl std::fmt::Display for Error {
             Error::MutexLock { variable, reason } => {
                 write!(f, "failed to acquire lock for {variable}: {reason}")
             }
-            Error::ThreadSend { worker, reason } => {
-                write!(
-                    f,
-                    "failed to send message from thread {worker:02}: {reason}"
-                )
+            Error::ThreadSend { reason } => {
+                write!(f, "failed to send message to thread: {reason}")
             }
             Error::ThreadJoin { worker } => write!(f, "failed to join thread {worker:02}"),
             Error::IoError { reason } => write!(f, "i/o error: {reason}"),
@@ -240,9 +217,7 @@ impl Error {
     }
 
     pub fn source_inference(path: impl AsRef<Path>) -> Self {
-        Self::SourceInference {
-            path: path.as_ref().to_path_buf(),
-        }
+        Self::SourceInference { path: path.as_ref().to_path_buf() }
     }
 
     pub fn no_env_variable(variable: &'static str) -> Self {
@@ -271,15 +246,11 @@ impl Error {
     }
 
     pub fn source_prep(reason: impl std::error::Error) -> Self {
-        Self::SourcePrep {
-            reason: reason.to_string(),
-        }
+        Self::SourcePrep { reason: reason.to_string() }
     }
 
     pub fn record_read(reason: impl std::error::Error) -> Self {
-        Self::RecordRead {
-            reason: reason.to_string(),
-        }
+        Self::RecordRead { reason: reason.to_string() }
     }
 
     pub fn decoder_open(path: impl AsRef<Path>, reason: impl std::error::Error) -> Self {
@@ -290,21 +261,15 @@ impl Error {
     }
 
     pub fn decoder_prep(reason: impl std::error::Error) -> Self {
-        Self::DecoderPrep {
-            reason: reason.to_string(),
-        }
+        Self::DecoderPrep { reason: reason.to_string() }
     }
 
     pub fn decode(reason: impl std::error::Error) -> Self {
-        Self::Decode {
-            reason: reason.to_string(),
-        }
+        Self::Decode { reason: reason.to_string() }
     }
 
     pub fn no_artwork(key: impl AsRef<str>) -> Self {
-        Self::NoArtwork {
-            key: key.as_ref().to_string(),
-        }
+        Self::NoArtwork { key: key.as_ref().to_string() }
     }
 
     pub fn vips(reason: libvips::error::Error, extra: Option<&str>) -> Self {
@@ -318,23 +283,15 @@ impl Error {
     }
 
     pub fn cairo(reason: cairo::Error) -> Self {
-        Self::ExternalError {
-            source: "cairo",
-            reason: reason.to_string(),
-        }
+        Self::ExternalError { source: "cairo", reason: reason.to_string() }
     }
 
     pub fn scan(slice: impl AsRef<str>) -> Self {
-        Self::ScanError {
-            slice: slice.as_ref().to_string(),
-        }
+        Self::ScanError { slice: slice.as_ref().to_string() }
     }
 
     pub fn text_invalid_attr(tag: &'static str, attr: impl AsRef<str>) -> Self {
-        Self::TextInvalidAttr {
-            tag,
-            attr: attr.as_ref().to_string(),
-        }
+        Self::TextInvalidAttr { tag, attr: attr.as_ref().to_string() }
     }
 
     pub fn text_invalid_attr_val(
@@ -343,12 +300,7 @@ impl Error {
         val: impl AsRef<str>,
         reason: String,
     ) -> Self {
-        Self::TextInvalidAttrVal {
-            tag,
-            attr,
-            val: val.as_ref().to_string(),
-            reason,
-        }
+        Self::TextInvalidAttrVal { tag, attr, val: val.as_ref().to_string(), reason }
     }
 
     pub fn font_file_load(key: impl AsRef<str>, path: impl AsRef<Path>) -> Self {
@@ -367,23 +319,15 @@ impl Error {
     }
 
     pub fn font_unnamed(key: impl AsRef<str>) -> Self {
-        Self::FontUnnamed {
-            key: key.as_ref().to_string(),
-        }
+        Self::FontUnnamed { key: key.as_ref().to_string() }
     }
 
     pub fn font_missing(key: impl AsRef<str>) -> Self {
-        Self::FontMissing {
-            key: key.as_ref().to_string(),
-        }
+        Self::FontMissing { key: key.as_ref().to_string() }
     }
 
     pub fn cairo_to_vips(reason: impl std::error::Error) -> Self {
-        Self::ImageConversion {
-            from: "cairo",
-            to: "vips",
-            reason: reason.to_string(),
-        }
+        Self::ImageConversion { from: "cairo", to: "vips", reason: reason.to_string() }
     }
 
     pub fn predicate_operand(
@@ -399,31 +343,19 @@ impl Error {
     }
 
     pub fn read_lock(variable: &'static str, reason: impl std::error::Error) -> Self {
-        Self::ReadLock {
-            variable,
-            reason: reason.to_string(),
-        }
+        Self::ReadLock { variable, reason: reason.to_string() }
     }
 
     pub fn write_lock(variable: &'static str, reason: impl std::error::Error) -> Self {
-        Self::WriteLock {
-            variable,
-            reason: reason.to_string(),
-        }
+        Self::WriteLock { variable, reason: reason.to_string() }
     }
 
     pub fn mutex_lock(variable: &'static str, reason: impl std::error::Error) -> Self {
-        Self::MutexLock {
-            variable,
-            reason: reason.to_string(),
-        }
+        Self::MutexLock { variable, reason: reason.to_string() }
     }
 
-    pub fn thread_send(worker: usize, reason: impl std::error::Error) -> Self {
-        Self::ThreadSend {
-            worker,
-            reason: reason.to_string(),
-        }
+    pub fn thread_send(reason: impl std::error::Error) -> Self {
+        Self::ThreadSend { reason: reason.to_string() }
     }
 
     pub fn thread_join(worker: usize) -> Self {
@@ -438,10 +370,7 @@ impl Error {
     }
 
     pub fn syntax_error(src: &str, i: usize) -> Self {
-        Self::SyntaxError {
-            desc: str_excerpt(10, i, src),
-            expected: None,
-        }
+        Self::SyntaxError { desc: str_excerpt(10, i, src), expected: None }
     }
 
     pub fn io_error(reason: std::io::Error) -> Self {
