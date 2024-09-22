@@ -209,7 +209,7 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
                     "▷".repeat(i),
                     "▷".repeat(Self::WORKER_BAR_WIDTH - 1 - i)
                 );
-                (arrows, termion::color::Blue.fg_str(), msg)
+                (arrows, termion::color::LightBlue.fg_str(), msg)
             }
             WorkerStatus::Error(msg) => (
                 "!".repeat(Self::WORKER_BAR_WIDTH),

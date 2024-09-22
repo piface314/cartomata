@@ -31,6 +31,7 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Base {
+    pub name: String,
     pub size: CardSize,
     #[serde(default)]
     pub background: Color,

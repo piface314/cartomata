@@ -10,7 +10,8 @@ use crate::cli::config::Config;
 use crate::cli::output::Resize;
 use crate::cli::template::{DynTemplate, SourceType};
 use crate::data::Predicate;
-use crate::pipeline::Pipeline;
+use crate::pipeline::{Pipeline, LogVisitor, ParallelismOptions};
+use crate::Error;
 
 use clap::Parser;
 use std::num::NonZero;
@@ -58,6 +59,10 @@ pub struct Cli {
     /// Number of worker threads
     #[arg(short, long, default_value_t = NonZero::new(4).unwrap())]
     pub workers: NonZero<usize>,
+
+    /// Maximum number of cards to be read at a time
+    #[arg(long)]
+    pub batch: Option<NonZero<usize>>
 }
 
 macro_rules! unwrap {
@@ -93,12 +98,19 @@ impl Cli {
             .as_ref()
             .map(|f| unwrap!(Predicate::from_string(f)));
 
-        let pipeline = Pipeline::new(template);
         let source_key = (cli.source, cli.input);
-        if cli.workers.get() > 1 {
-            unwrap!(pipeline.run_parallel_with_logs(cli.workers, source_key, filter));
+        let v_handle = if cli.workers.get() > 1 {
+            let opt = ParallelismOptions::new(cli.workers).with_batch_size(cli.batch);
+            let (visitor, handle) = LogVisitor::new(opt.n_workers());
+            let pipeline = Pipeline::new(template, visitor);
+            unwrap!(unwrap!(pipeline.run_parallel(source_key, filter, opt)).join());
+            handle
         } else {
-            unwrap!(pipeline.run_with_logs(source_key, filter));
-        }
+            let (visitor, handle) = LogVisitor::new(0);
+            let pipeline = Pipeline::new(template, visitor);
+            pipeline.run(source_key, filter);
+            handle
+        };
+        unwrap!(unwrap!(v_handle.join().map_err(|_| Error::thread_join(0))));
     }
 }
