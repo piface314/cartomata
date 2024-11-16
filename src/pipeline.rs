@@ -143,3 +143,82 @@ impl<C: Card, T: Template<C>> Visitor<C, T> for LogVisitor {
         self.log(msg)
     }
 }
+
+pub struct ChainVisitor<C, T, V1, V2> {
+    visitor1: V1,
+    visitor2: V2,
+    _card: PhantomData<C>,
+    _template: PhantomData<T>,
+}
+
+pub trait Chain<C: Card, T: Template<C>, V: Visitor<C, T>>: Visitor<C, T> + Sized {
+    fn chain(self, other: V) -> ChainVisitor<C, T, Self, V>;
+}
+
+impl<C: Card, T: Template<C>, V1: Visitor<C, T>, V2: Visitor<C, T>> Chain<C, T, V2> for V1 {
+    fn chain(self, other: V2) -> ChainVisitor<C, T, Self, V2> {
+        ChainVisitor::new(self, other)
+    }
+}
+
+impl<C: Card, T: Template<C>, V1: Visitor<C, T> + Clone, V2: Visitor<C, T> + Clone> Clone
+    for ChainVisitor<C, T, V1, V2>
+{
+    fn clone(&self) -> Self {
+        Self {
+            visitor1: self.visitor1.clone(),
+            visitor2: self.visitor2.clone(),
+            _card: PhantomData,
+            _template: PhantomData,
+        }
+    }
+}
+
+macro_rules! chain_method {
+    (fn $method:ident(&self, $($param:ident: $T:ty),*)) => {
+        fn $method(&self, $($param: $T),*) {
+            self.visitor1.$method($($param),*);
+            self.visitor2.$method($($param),*);
+        }
+    };
+}
+
+impl<C: Card, T: Template<C>, V1: Visitor<C, T>, V2: Visitor<C, T>> ChainVisitor<C, T, V1, V2> {
+    pub fn new(visitor1: V1, visitor2: V2) -> Self {
+        Self {
+            visitor1,
+            visitor2,
+            _card: PhantomData,
+            _template: PhantomData,
+        }
+    }
+}
+
+impl<C: Card, T: Template<C>, V1: Visitor<C, T>, V2: Visitor<C, T>> Visitor<C, T>
+    for ChainVisitor<C, T, V1, V2>
+{
+    chain_method!(fn on_start(&self, template: &T, worker: usize));
+    chain_method!(fn on_total(&self, template: &T, total: usize));
+    chain_method!(fn on_iter_start(&self, template: &T, worker: usize, i: usize, card: &C));
+    chain_method!(fn on_finish(&self, template: &T, worker: usize, result: &Result<()>));
+
+    fn on_read(&self, template: &T, card: &Result<C>) -> bool {
+        self.visitor1.on_read(template, card) && self.visitor2.on_read(template, card)
+    }
+
+    fn on_read_err(&self, template: &T, i: usize, error: Error) {
+        self.visitor1.on_read_err_r(template, i, &error);
+        self.visitor2.on_read_err(template, i, error);
+    }
+
+    fn on_iter_ok(&self, template: &T, worker: usize, i: usize, card: C) {
+        self.visitor1.on_iter_ok_r(template, worker, i, &card);
+        self.visitor2.on_iter_ok(template, worker, i, card);
+    }
+
+    fn on_iter_err(&self, template: &T, worker: usize, i: usize, card: C, error: Error) {
+        self.visitor1
+            .on_iter_err_r(template, worker, i, &card, &error);
+        self.visitor2.on_iter_err(template, worker, i, card, error);
+    }
+}
