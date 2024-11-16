@@ -10,6 +10,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+#[derive(Debug, Clone)]
 pub struct OutputMap {
     pub prefix: PathBuf,
     pub resize: Resize,

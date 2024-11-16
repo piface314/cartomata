@@ -18,6 +18,12 @@ pub struct FontMap {
     loaded: HashMap<String, String>,
 }
 
+impl std::fmt::Debug for FontMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FontMap({:?})", self.loaded)
+    }
+}
+
 impl FontMap {
     pub fn new() -> Result<Self> {
         Ok(Self {

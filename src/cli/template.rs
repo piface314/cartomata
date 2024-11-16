@@ -16,6 +16,7 @@ use clap::ValueEnum;
 use libvips::VipsImage;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug)]
 pub struct DynTemplate {
     name: String,
     source_map: SourceMap,
@@ -121,6 +122,7 @@ pub enum SourceType {
     Sqlite,
 }
 
+#[derive(Debug, Clone)]
 pub struct SourceMap {
     #[cfg(feature = "csv")]
     csv: Option<CsvSourceConfig>,

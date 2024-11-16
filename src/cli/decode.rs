@@ -14,6 +14,7 @@ use mlua::{
 use std::fs;
 use std::path::PathBuf;
 
+#[derive(Debug, Clone)]
 pub struct LuaDecoderFactory {
     folder: PathBuf,
     chunk: String,

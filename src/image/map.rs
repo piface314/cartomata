@@ -3,6 +3,7 @@ use crate::image::color::Color;
 
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone)]
 pub struct ImageMap {
     pub assets_folder: PathBuf,
     pub artwork_folder: PathBuf,

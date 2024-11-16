@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Represents an error that occurs within the crate.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Error {
     NoSourceConfig {
         key: &'static str,
@@ -114,7 +114,7 @@ pub enum Error {
         worker: usize,
     },
     IoError {
-        reason: std::io::Error,
+        reason: String,
     },
     Unknown,
 }
@@ -374,7 +374,7 @@ impl Error {
     }
 
     pub fn io_error(reason: std::io::Error) -> Self {
-        Self::IoError { reason }
+        Self::IoError { reason: reason.to_string() }
     }
 
     pub fn unknown() -> Self {

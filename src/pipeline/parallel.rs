@@ -64,7 +64,7 @@ where
     C: Card + Send,
     T: Template<C> + Send + Sync + 'static,
     T::SourceKey: Send,
-    V: Visitor<C, T> + Send + Sync + Clone + 'static,
+    V: Visitor<C, T> + Send + Clone + 'static,
 {
     pub fn run_parallel(
         self,
