@@ -29,7 +29,7 @@ impl Default for WorkerStatus {
 }
 
 #[derive(Debug, Clone)]
-pub struct ProgressBar<T: Write + Send> {
+pub struct ProgressBar<T> {
     n_workers: usize,
     tty: T,
     status: Vec<WorkerStatus>,
@@ -39,12 +39,27 @@ pub struct ProgressBar<T: Write + Send> {
     time: Instant,
 }
 
+macro_rules! palette {
+    {$($vis:vis const $NAME:ident = $($Color:ident)::*;)*} => {
+        $($vis const $NAME: $($Color)::* = $($Color)::*;)*
+    };
+}
+
+palette! {
+    pub const RUNNING_COLOR = termion::color::LightMagenta;
+    pub const INFO_COLOR = termion::color::LightBlack;
+    pub const WARN_COLOR = termion::color::LightRed;
+    pub const ERR_COLOR = termion::color::LightRed;
+    pub const OK_COLOR = termion::color::LightYellow;
+    pub const EMPH_COLOR = termion::color::LightYellow;
+}
+
 impl ProgressBar<Stderr> {
     pub fn new_stderr(n_workers: usize) -> Result<Self, Error> {
         Self::new(n_workers, stderr())
     }
 
-    pub fn spawn_stderr(n_workers: usize)-> (Sender<LogMsg>, JoinHandle<Result<(), Error>>) {
+    pub fn spawn_stderr(n_workers: usize) -> (Sender<LogMsg>, JoinHandle<Result<(), Error>>) {
         Self::spawn(n_workers, stderr())
     }
 }
@@ -64,25 +79,25 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
                 match rx.try_recv() {
                     Ok(LogMsg::Total(id)) => {
                         pbar.set_total(id);
-                    },
+                    }
                     Ok(LogMsg::Progress(id)) => {
                         pbar.progress(id);
-                    },
+                    }
                     Ok(LogMsg::Info(id, msg)) => {
                         pbar.info(id, msg)?;
-                    },
+                    }
                     Ok(LogMsg::Warn(id, msg)) => {
                         pbar.warn(id, msg)?;
-                    },
+                    }
                     Ok(LogMsg::Running(id, msg)) => {
                         pbar.running(id, msg);
-                    },
+                    }
                     Ok(LogMsg::Error(id, msg)) => {
                         pbar.error(id, msg);
-                    },
+                    }
                     Ok(LogMsg::Success(id, msg)) => {
                         pbar.success(id, msg);
-                    },
+                    }
                     Err(TryRecvError::Empty) => thread::sleep(Duration::from_millis(10)),
                     Err(TryRecvError::Disconnected) => break,
                 }
@@ -94,7 +109,6 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
     }
 
     pub fn new(n_workers: usize, tty: T) -> Result<Self, Error> {
-
         let mut pbar = Self {
             n_workers,
             tty,
@@ -123,12 +137,12 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
     }
 
     pub fn info(&mut self, id: usize, msg: String) -> Result<(), Error> {
-        self.log_message(id, "INFO", &msg, termion::color::LightBlack)
+        self.log_message(id, "INFO", &msg, INFO_COLOR)
             .map_err(Error::io_error)
     }
 
     pub fn warn(&mut self, id: usize, msg: String) -> Result<(), Error> {
-        self.log_message(id, "WARN", &msg, termion::color::LightYellow)
+        self.log_message(id, "WARN", &msg, WARN_COLOR)
             .map_err(Error::io_error)
     }
 
@@ -159,7 +173,7 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
         let y = h - self.n_workers as u16 - (2 + nl);
         let up = termion::scroll::Up(1 + nl);
         let goto = termion::cursor::Goto(1, y);
-        let id_color = termion::color::Fg(termion::color::LightBlack);
+        let id_color = termion::color::Fg(INFO_COLOR);
         let color = termion::color::Fg(color);
         let reset = termion::style::Reset;
         let clear = termion::clear::UntilNewline;
@@ -209,20 +223,16 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
                     "▷".repeat(i),
                     "▷".repeat(Self::WORKER_BAR_WIDTH - 1 - i)
                 );
-                (arrows, termion::color::LightBlue.fg_str(), msg)
+                (arrows, RUNNING_COLOR.fg_str(), msg)
             }
-            WorkerStatus::Error(msg) => (
-                "!".repeat(Self::WORKER_BAR_WIDTH),
-                termion::color::LightRed.fg_str(),
-                msg,
-            ),
-            WorkerStatus::Success(msg) => (
-                "-".repeat(Self::WORKER_BAR_WIDTH),
-                termion::color::LightGreen.fg_str(),
-                msg,
-            ),
+            WorkerStatus::Error(msg) => {
+                ("!".repeat(Self::WORKER_BAR_WIDTH), ERR_COLOR.fg_str(), msg)
+            }
+            WorkerStatus::Success(msg) => {
+                ("-".repeat(Self::WORKER_BAR_WIDTH), OK_COLOR.fg_str(), msg)
+            }
         };
-        let id_color = termion::color::Fg(termion::color::LightBlack);
+        let id_color = termion::color::Fg(INFO_COLOR);
         let msg = Self::ellipsize(msg, w, 18);
         let reset = termion::style::Reset;
         let clear = termion::clear::UntilNewline;
@@ -255,18 +265,10 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
                     }
                     arrows.into_iter().collect::<String>()
                 };
-                (arrows, termion::color::LightBlue.fg_str(), msg)
+                (arrows, RUNNING_COLOR.fg_str(), msg)
             }
-            WorkerStatus::Error(msg) => (
-                "!".repeat(Self::BAR_WIDTH),
-                termion::color::LightRed.fg_str(),
-                msg,
-            ),
-            WorkerStatus::Success(msg) => (
-                "=".repeat(Self::BAR_WIDTH),
-                termion::color::LightGreen.fg_str(),
-                msg,
-            ),
+            WorkerStatus::Error(msg) => ("!".repeat(Self::BAR_WIDTH), ERR_COLOR.fg_str(), msg),
+            WorkerStatus::Success(msg) => ("=".repeat(Self::BAR_WIDTH), OK_COLOR.fg_str(), msg),
         };
         let msg = Self::ellipsize(msg, w, 27);
         let reset = termion::style::Reset;

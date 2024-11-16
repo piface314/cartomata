@@ -70,7 +70,7 @@ macro_rules! unwrap {
         $res.unwrap_or_else(|e| {
             panic!(
                 "{}[ERROR]{} {e}",
-                termion::color::LightRed.fg_str(),
+                logs::ERR_COLOR.fg_str(),
                 termion::style::Reset
             )
         })

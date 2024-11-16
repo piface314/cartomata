@@ -3,7 +3,7 @@ mod sequential;
 
 use crate::data::Card;
 use crate::error::{Error, Result};
-use crate::logs::{LogMsg, ProgressBar};
+use crate::logs::{self, LogMsg, ProgressBar};
 pub use crate::pipeline::parallel::ParallelismOptions;
 use crate::template::Template;
 
@@ -33,13 +33,25 @@ pub trait Visitor<C: Card, T: Template<C>> {
         true
     }
 
-    fn on_read_err(&self, template: &T, i: usize, error: Error) {}
+    fn on_read_err(&self, template: &T, i: usize, error: Error) {
+        self.on_read_err_r(template, i, &error);
+    }
+
+    fn on_read_err_r(&self, template: &T, i: usize, error: &Error) {}
 
     fn on_iter_start(&self, template: &T, worker: usize, i: usize, card: &C) {}
 
-    fn on_iter_ok(&self, template: &T, worker: usize, i: usize, card: C) {}
+    fn on_iter_ok(&self, template: &T, worker: usize, i: usize, card: C) {
+        self.on_iter_ok_r(template, worker, i, &card);
+    }
 
-    fn on_iter_err(&self, template: &T, worker: usize, i: usize, card: C, error: Error) {}
+    fn on_iter_ok_r(&self, template: &T, worker: usize, i: usize, card: &C) {}
+
+    fn on_iter_err(&self, template: &T, worker: usize, i: usize, card: C, error: Error) {
+        self.on_iter_err_r(template, worker, i, &card, &error);
+    }
+
+    fn on_iter_err_r(&self, template: &T, worker: usize, i: usize, card: &C, error: &Error) {}
 
     fn on_finish(&self, template: &T, worker: usize, result: &Result<()>) {}
 }
@@ -60,6 +72,10 @@ impl LogVisitor {
     fn log(&self, msg: LogMsg) {
         self.tx.send(msg).unwrap_or(())
     }
+
+    pub fn tx(&self) -> Sender<LogMsg> {
+        self.tx.clone()
+    }
 }
 
 impl<C: Card, T: Template<C>> Visitor<C, T> for LogVisitor {
@@ -72,7 +88,7 @@ impl<C: Card, T: Template<C>> Visitor<C, T> for LogVisitor {
                 0,
                 format!(
                     "running template {}{name}{}",
-                    termion::color::Fg(termion::color::LightYellow),
+                    termion::color::Fg(logs::EMPH_COLOR),
                     termion::style::Reset
                 ),
             )),
@@ -84,7 +100,7 @@ impl<C: Card, T: Template<C>> Visitor<C, T> for LogVisitor {
         self.log(LogMsg::Total(total))
     }
 
-    fn on_read_err(&self, _template: &T, i: usize, error: Error) {
+    fn on_read_err_r(&self, _template: &T, i: usize, error: &Error) {
         self.log(LogMsg::Warn(
             0,
             format!("failed to read card (#{i}): {error}"),
@@ -99,12 +115,12 @@ impl<C: Card, T: Template<C>> Visitor<C, T> for LogVisitor {
         ))
     }
 
-    fn on_iter_ok(&self, _template: &T, worker: usize, _i: usize, _card: C) {
+    fn on_iter_ok_r(&self, _template: &T, worker: usize, _i: usize, _card: &C) {
         self.log(LogMsg::Progress(worker));
     }
 
-    fn on_iter_err(&self, template: &T, worker: usize, i: usize, card: C, error: Error) {
-        let card_id = template.identify(&card);
+    fn on_iter_err_r(&self, template: &T, worker: usize, i: usize, card: &C, error: &Error) {
+        let card_id = template.identify(card);
         self.log(LogMsg::Warn(
             worker,
             format!("failed to process card {card_id} (#{i}): {error}"),
@@ -117,7 +133,7 @@ impl<C: Card, T: Template<C>> Visitor<C, T> for LogVisitor {
                 worker,
                 format!(
                     "finished template {}{name}{}!",
-                    termion::color::Fg(termion::color::LightYellow),
+                    termion::color::Fg(logs::EMPH_COLOR),
                     termion::style::Reset
                 ),
             ),
