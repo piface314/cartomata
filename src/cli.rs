@@ -11,6 +11,7 @@ use crate::cli::output::Resize;
 use crate::cli::template::{DynTemplate, SourceType};
 use crate::data::Predicate;
 use crate::pipeline::{Pipeline, LogVisitor, ParallelismOptions};
+use crate::logs;
 use crate::Error;
 
 use clap::Parser;
