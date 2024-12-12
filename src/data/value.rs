@@ -2,6 +2,8 @@ use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer};
 use std::fmt;
 
+
+/// Represents the possible values a card field can take.
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),

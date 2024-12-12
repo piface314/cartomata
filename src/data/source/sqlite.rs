@@ -1,7 +1,7 @@
-//! Contains implementation for SQLite as card data source.
+//! Implementation for SQLite as card data source.
 
 use crate::abox::AliasBox;
-use crate::data::predicate::SetValue;
+use crate::data::predicate::ValueSet;
 use crate::data::{Card, DataSource, Predicate, Value};
 use crate::error::{Error, Result};
 
@@ -13,13 +13,48 @@ use serde_rusqlite::{from_rows, DeserRows};
 use std::fmt::Write;
 use std::path::Path;
 
+
+/// Configurations for reading a SQLite file.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SqliteSourceConfig {
+    /// The SELECT query to be executed without a predicate.
     pub query: String,
+    /// The SELECT query to be executed with a predicate.
+    /// The predicate is inserted in place of the first occurrence of the string `WHERE ?`.
+    /// If `None`, the default query is used instead, and the predicate is appended at the end
+    /// of the string.
     pub with_predicate: Option<String>,
 }
 
+/// A reader for a SQLite file as a card data source.
+///
+/// # Example
+/// ```
+/// use cartomata::data::source::{DataSource, SqliteSource, SqliteSourceConfig};
+/// use cartomata::data::{Card, Predicate};
+/// use cartomata::Result;
+/// use serde::Deserialize;
+///
+/// #[derive(Debug, Card, Deserialize, PartialEq)]
+/// struct MyCard {
+///     id: i64,
+///     name: String,
+///     power: f64,
+/// }
+///
+/// let path = "examples/sample.db".to_string();
+/// let config = SqliteSourceConfig { query: "SELECT * FROM card".into(), with_predicate: None };
+/// let mut sqlite_source = SqliteSource::open(config, &path).unwrap();
+/// let cards: Vec<Result<MyCard>> = sqlite_source.read(None).unwrap().collect();
+/// assert_eq!(cards[0], Ok(MyCard { id: 271, name: "E".to_string(), power: 2.71 }));
+///
+/// let config = SqliteSourceConfig { query: "SELECT * FROM card".into(), with_predicate: None };
+/// let mut sqlite_source = SqliteSource::open(config, &path).unwrap();
+/// let p = Predicate::from_string("power >= 3.0").unwrap();
+/// let cards: Vec<Result<MyCard>> = sqlite_source.read(Some(p)).unwrap().collect();
+/// assert_eq!(cards[0], Ok(MyCard { id: 314, name: "Pi".to_string(), power: 3.14 }));
+/// ```
 pub struct SqliteSource {
     query: String,
     with_predicate: Option<String>,
@@ -93,6 +128,7 @@ impl<'c, C: Card> Iterator for SqliteIterator<'c, C> {
 }
 
 impl Value {
+    /// Converts the value into a SQL compatible representation.
     fn to_sql<'a>(&'a self) -> ToSqlOutput<'a> {
         match self {
             Value::Bool(v) => ToSqlOutput::Owned(SqlValue::Integer(*v as i64)),
@@ -120,6 +156,7 @@ macro_rules! seq_write {
 }
 
 impl Predicate {
+    /// Formats a predicate into a SQLite `WHERE` clause.
     pub fn where_clause(&self) -> Result<(String, Vec<ToSqlOutput>)> {
         let mut buf = String::from("WHERE ");
         let mut vars = Vec::new();
@@ -145,11 +182,11 @@ impl Predicate {
                 write!(buf, "{} != ?", esc_col(col))?;
                 vars.push(v.to_sql());
             }
-            Self::In(col, SetValue::IntSet(vs)) => {
+            Self::In(col, ValueSet::Int(vs)) => {
                 write!(buf, "{} IN ({})", esc_col(col), repeat_vars(vs.len()))?;
                 vars.extend(vs.iter().map(|v| ToSqlOutput::Owned(SqlValue::Integer(*v))));
             }
-            Self::In(col, SetValue::StrSet(vs)) => {
+            Self::In(col, ValueSet::Str(vs)) => {
                 write!(buf, "{} IN ({})", esc_col(col), repeat_vars(vs.len()))?;
                 vars.extend(
                     vs.iter()

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Represents an error that occurs within the crate.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Error {
     NoSourceConfig {
         key: &'static str,

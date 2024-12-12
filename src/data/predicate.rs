@@ -1,5 +1,4 @@
-#![allow(dead_code)]
-
+//! Implementation of simple predicates to filter data, with a SQL like syntax.
 use crate::data::{Card, Value};
 use crate::error::{Error, Result};
 
@@ -8,14 +7,29 @@ use logos::{Lexer, Logos};
 use std::collections::HashSet;
 use std::fmt::Display;
 
-#[derive(Debug, Clone)]
+/// Abstract representation of a predicate.
+///
+/// A predicate can be created directly or parsed from a string, using a SQL like syntax.
+///
+/// # Example
+/// ```
+/// use cartomata::data::{Predicate, Value};
+///
+/// let p = Predicate::from_string("power >= 100 AND name LIKE 'sample'").unwrap();
+/// assert_eq!(
+///     p,
+///     Predicate::Ge("power".to_string(), Value::Int(100))
+///         & Predicate::Like("name".to_string(), Value::Str("sample".to_string()))
+/// );
+/// ```
+#[derive(Debug, Clone, PartialEq)]
 pub enum Predicate {
     And(Box<Predicate>, Box<Predicate>),
     Or(Box<Predicate>, Box<Predicate>),
     Not(Box<Predicate>),
     Eq(String, Value),
     Neq(String, Value),
-    In(String, SetValue),
+    In(String, ValueSet),
     Like(String, Value),
     Lt(String, Value),
     Le(String, Value),
@@ -25,40 +39,41 @@ pub enum Predicate {
 
 #[derive(Debug, Clone)]
 enum AnyValue {
-    Set(SetValue),
+    Set(ValueSet),
     Unit(Value),
 }
 
-#[derive(Debug, Clone)]
-pub enum SetValue {
-    IntSet(HashSet<i64>),
-    StrSet(HashSet<String>),
+/// Represents a set of values, used in predicates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ValueSet {
+    Int(HashSet<i64>),
+    Str(HashSet<String>),
 }
 
-impl Display for SetValue {
+impl Display for ValueSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::IntSet(vs) => write!(f, "({})", vs.iter().join(", ")),
-            Self::StrSet(vs) => write!(f, "({})", vs.iter().join(", ")),
+            Self::Int(vs) => write!(f, "({})", vs.iter().join(", ")),
+            Self::Str(vs) => write!(f, "({})", vs.iter().join(", ")),
         }
     }
 }
 
-impl From<HashSet<i64>> for SetValue {
+impl From<HashSet<i64>> for ValueSet {
     fn from(value: HashSet<i64>) -> Self {
-        Self::IntSet(value)
+        Self::Int(value)
     }
 }
 
-impl From<HashSet<String>> for SetValue {
+impl From<HashSet<String>> for ValueSet {
     fn from(value: HashSet<String>) -> Self {
-        Self::StrSet(value)
+        Self::Str(value)
     }
 }
 
-impl From<HashSet<&'_ str>> for SetValue {
+impl From<HashSet<&'_ str>> for ValueSet {
     fn from(value: HashSet<&str>) -> Self {
-        Self::StrSet(value.into_iter().map(String::from).collect())
+        Self::Str(value.into_iter().map(String::from).collect())
     }
 }
 
@@ -84,10 +99,12 @@ impl std::ops::Not for Predicate {
 }
 
 impl Predicate {
+    /// Parses a string to a predicate.
     pub fn from_string(predicate: &str) -> Result<Self> {
         Parser::new(predicate).parse()
     }
 
+    /// Evaluates a predicate on an input card.
     pub fn eval(&self, card: &impl Card) -> bool {
         match self {
             Self::And(a, b) => a.eval(card) && b.eval(card),
@@ -95,13 +112,13 @@ impl Predicate {
             Self::Not(a) => !a.eval(card),
             Self::Eq(k, v) => &card.get(k) == v,
             Self::Neq(k, v) => &card.get(k) != v,
-            Self::In(k, SetValue::IntSet(vs)) => match &card.get(k) {
+            Self::In(k, ValueSet::Int(vs)) => match &card.get(k) {
                 Value::Int(x) => vs.contains(x),
                 Value::Float(x) => x.fract() == 0.0 && vs.contains(&(*x as i64)),
                 Value::Str(x) => x.parse::<i64>().map(|x| vs.contains(&x)).unwrap_or(false),
                 _ => false,
             },
-            Self::In(k, SetValue::StrSet(vs)) => match &card.get(k) {
+            Self::In(k, ValueSet::Str(vs)) => match &card.get(k) {
                 Value::Str(x) => vs.contains(x),
                 _ => false,
             },
@@ -268,7 +285,7 @@ enum Symbol {
     E1(Predicate),
     E2(Predicate),
     V(AnyValue),
-    S(SetValue),
+    S(ValueSet),
     Si(HashSet<i64>),
     Ss(HashSet<String>),
     Token(Token),
@@ -466,12 +483,7 @@ impl<'src> Parser<'src> {
     }
 
     fn next_token(&mut self) -> Result<Option<Token>> {
-        let output = self.lex.next();
-        match output {
-            Some(Ok(x)) => Ok(Some(x)),
-            Some(Err(_)) => Err(Error::scan(self.lex.slice())),
-            None => Ok(None),
-        }
+        self.lex.next().transpose().map_err(|_| Error::scan(self.lex.slice()))
     }
 
     fn pop_symbols(&mut self, n: usize) -> Vec<Symbol> {
@@ -630,8 +642,8 @@ impl<'src> Parser<'src> {
         6:  E2 -> [ :Not E2(p) { !p } ]
         7:  E2 -> [ :Key(key) :Op(op) V(val) { op.predicate(key, val)? } ]
         8:  V  -> [ :ParenO S(s) :ParenC { AnyValue::Set(s) } ]
-        9:  S  -> [ Si(mut s) :ValInt(v) {{ s.insert(v); SetValue::IntSet(s) }} ]
-        10: S  -> [ Ss(mut s) :ValStr(v) {{ s.insert(v); SetValue::StrSet(s) }} ]
+        9:  S  -> [ Si(mut s) :ValInt(v) {{ s.insert(v); ValueSet::Int(s) }} ]
+        10: S  -> [ Ss(mut s) :ValStr(v) {{ s.insert(v); ValueSet::Str(s) }} ]
         11: Si -> [ Si(mut s) :ValInt(v) :Comma {{ s.insert(v); s }} ]
         12: Si -> [ { HashSet::new() } ]
         13: Ss -> [ Ss(mut s) :ValStr(v) :Comma {{ s.insert(v); s }} ]
