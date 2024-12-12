@@ -1,6 +1,6 @@
 # Cartomata
 
-<img src="https://raw.githubusercontent.com/piface314/cartomata/main/docs/logo.png" alt="Cartomata logo" width="500" align="right">
+<img src="https://raw.githubusercontent.com/piface314/cartomata/refs/heads/main/docs/logo.png" alt="Cartomata logo" width="500" align="right">
 
 A library to create templates for TCG card images and render them automatically.
 
