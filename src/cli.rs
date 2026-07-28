@@ -10,8 +10,8 @@ use crate::cli::config::Config;
 use crate::cli::output::Resize;
 use crate::cli::template::{DynTemplate, SourceType};
 use crate::data::Predicate;
-use crate::pipeline::{Pipeline, LogVisitor, ParallelismOptions};
 use crate::logs;
+use crate::pipeline::{LogVisitor, ParallelismOptions, Pipeline};
 use crate::Error;
 
 use clap::Parser;
@@ -63,19 +63,7 @@ pub struct Cli {
 
     /// Maximum number of cards to be read at a time
     #[arg(long)]
-    pub batch: Option<NonZero<usize>>
-}
-
-macro_rules! unwrap {
-    ($res:expr) => {
-        $res.unwrap_or_else(|e| {
-            panic!(
-                "{}[ERROR]{} {e}",
-                logs::ERR_COLOR.fg_str(),
-                termion::style::Reset
-            )
-        })
-    };
+    pub batch: Option<NonZero<usize>>,
 }
 
 impl Cli {
@@ -88,23 +76,34 @@ impl Cli {
             }
         }));
 
-        let cli = Self::parse();
-        let (folder, config) = unwrap!(Config::find(cli.template.as_ref()));
+        Self::run_internal().unwrap_or_else(|e| {
+            panic!(
+                "{}[ERROR]{} {e}",
+                logs::ERR_COLOR.fg_str(),
+                termion::style::Reset
+            )
+        })
+    }
 
-        let mut template = unwrap!(DynTemplate::from_config(config, folder));
+    pub fn run_internal() -> Result<(), Box<dyn std::error::Error>> {
+        let cli = Self::parse();
+        let (folder, config) = Config::find(cli.template.as_ref())?;
+
+        let mut template = DynTemplate::from_config(config, folder)?;
         template.configure_output(cli.output, cli.resize, cli.ext);
 
-        let filter = cli
-            .filter
-            .as_ref()
-            .map(|f| unwrap!(Predicate::from_string(f)));
+        let filter = if let Some(f) = cli.filter.as_ref() {
+            Some(Predicate::from_string(f)?)
+        } else {
+            None
+        };
 
         let source_key = (cli.source, cli.input);
         let v_handle = if cli.workers.get() > 1 {
             let opt = ParallelismOptions::new(cli.workers).with_batch_size(cli.batch);
             let (visitor, handle) = LogVisitor::new(opt.n_workers());
             let pipeline = Pipeline::new(template, visitor);
-            unwrap!(unwrap!(pipeline.run_parallel(source_key, filter, opt)).join());
+            pipeline.run_parallel(source_key, filter, opt)?.join()?;
             handle
         } else {
             let (visitor, handle) = LogVisitor::new(0);
@@ -112,6 +111,7 @@ impl Cli {
             pipeline.run(source_key, filter);
             handle
         };
-        unwrap!(unwrap!(v_handle.join().map_err(|_| Error::thread_join(0))));
+        v_handle.join().map_err(|_| Error::thread_join(0))??;
+        Ok(())
     }
 }
