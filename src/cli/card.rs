@@ -1,13 +1,15 @@
 //! Contains representations for card data.
 
-use crate::data::Value;
-use crate::data::Card;
+use crate::data::{Card, Value};
+#[cfg(feature = "diff")]
+use crate::diff::DiffHash;
+use itertools::Itertools;
+use md5::digest::Update;
 use mlua::{IntoLua, Lua, Result as LuaResult, Value as LuaValue};
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::fmt;
-
 
 impl<'lua> IntoLua<'lua> for Value {
     fn into_lua(self, lua: &'lua Lua) -> LuaResult<LuaValue<'lua>> {
@@ -57,5 +59,17 @@ impl<'de> Deserialize<'de> for DynCard {
         D: Deserializer<'de>,
     {
         deserializer.deserialize_map(DynCardVisitor)
+    }
+}
+
+
+#[cfg(feature="diff")]
+impl DiffHash for DynCard {
+    fn diff_hash(&self, state: &mut md5::Md5) {
+        for (k, v) in self.0.iter().sorted_by_key(|pair| pair.0) {
+            state.update(k.as_bytes());
+            state.update(b":");
+            state.update(format!("{v:?}").as_bytes());
+        }
     }
 }

@@ -10,13 +10,16 @@ use crate::cli::config::Config;
 use crate::cli::output::Resize;
 use crate::cli::template::{DynTemplate, SourceType};
 use crate::data::Predicate;
+use crate::error::{Error, Result};
 use crate::logs;
+use crate::pipeline::Chain;
+use crate::pipeline::Visitor;
 use crate::pipeline::{LogVisitor, ParallelismOptions, Pipeline};
-use crate::Error;
 
 use clap::Parser;
 use std::num::NonZero;
 use std::path::PathBuf;
+use std::thread::JoinHandle;
 
 /// Render card images automatically from code defined templates.
 #[derive(Debug, Parser)]
@@ -64,6 +67,11 @@ pub struct Cli {
     /// Maximum number of cards to be read at a time
     #[arg(long)]
     pub batch: Option<NonZero<usize>>,
+
+    #[cfg(feature = "diff")]
+    /// If set, processes all cards, not only the ones that changed.
+    #[arg(short, long)]
+    pub all: bool,
 }
 
 impl Cli {
@@ -85,12 +93,12 @@ impl Cli {
         })
     }
 
-    pub fn run_internal() -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run_internal() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let cli = Self::parse();
         let (folder, config) = Config::find(cli.template.as_ref())?;
 
         let mut template = DynTemplate::from_config(config, folder)?;
-        template.configure_output(cli.output, cli.resize, cli.ext);
+        template.configure_output(cli.output.clone(), cli.resize, cli.ext);
 
         let filter = if let Some(f) = cli.filter.as_ref() {
             Some(Predicate::from_string(f)?)
@@ -101,17 +109,68 @@ impl Cli {
         let source_key = (cli.source, cli.input);
         let v_handle = if cli.workers.get() > 1 {
             let opt = ParallelismOptions::new(cli.workers).with_batch_size(cli.batch);
-            let (visitor, handle) = LogVisitor::new(opt.n_workers());
+            let (visitor, handle) =
+                Self::create_visitor(&source_key, &cli.output, opt.n_workers())?;
             let pipeline = Pipeline::new(template, visitor);
             pipeline.run_parallel(source_key, filter, opt)?.join()?;
             handle
         } else {
-            let (visitor, handle) = LogVisitor::new(0);
+            let (visitor, handle) = Self::create_visitor(&source_key, &cli.output, 0)?;
             let pipeline = Pipeline::new(template, visitor);
             pipeline.run(source_key, filter);
             handle
         };
         v_handle.join().map_err(|_| Error::thread_join(0))??;
         Ok(())
+    }
+
+    #[cfg(not(feature = "diff"))]
+    fn create_visitor(
+        _source_key: &(Option<SourceType>, PathBuf),
+        _output: &PathBuf,
+        n_workers: usize,
+    ) -> Result<(
+        impl Visitor<DynCard, DynTemplate> + Clone,
+        JoinHandle<Result<()>>,
+    )> {
+        Ok(LogVisitor::new(n_workers))
+    }
+
+    #[cfg(feature = "diff")]
+    fn create_visitor(
+        source_key: &(Option<SourceType>, PathBuf),
+        output: &Option<PathBuf>,
+        n_workers: usize,
+    ) -> Result<(
+        impl Visitor<DynCard, DynTemplate> + Clone,
+        JoinHandle<Result<()>>,
+    )> {
+        use crate::diff::DiffVisitor;
+        use md5::{Digest, Md5};
+
+        let mut output = output.clone().unwrap_or_else(|| PathBuf::from("."));
+
+        let diff_name = {
+            let mut hasher = Md5::new();
+            let source_key = (
+                source_key.0.clone(),
+                source_key.1.canonicalize().map_err(|_| Error::unknown())?,
+            );
+            let output = output.canonicalize().map_err(|_| Error::unknown())?;
+            hasher.update(format!("{source_key:?}:{output:?}").as_bytes());
+            let digest = hasher.finalize();
+            let mut hex_digest = String::new();
+            for b in digest.into_iter() {
+                hex_digest.push_str(&format!("{b:x}"));
+            }
+            hex_digest
+        };
+        output.push(".diff");
+        std::fs::create_dir_all(&output).map_err(|_| Error::unknown())?;
+        output.push(diff_name);
+        let (log_visitor, handle) = LogVisitor::new(n_workers);
+        let diff_visitor = DiffVisitor::new(Some(log_visitor.tx()), output)?;
+        let visitor = log_visitor.chain(diff_visitor);
+        Ok((visitor, handle))
     }
 }

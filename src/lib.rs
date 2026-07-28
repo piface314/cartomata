@@ -7,6 +7,8 @@ mod abox;
 pub mod cli;
 pub mod data;
 pub mod decode;
+#[cfg(feature = "diff")]
+pub mod diff;
 pub mod error;
 pub mod image;
 pub mod layer;
