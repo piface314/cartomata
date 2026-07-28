@@ -93,12 +93,8 @@ impl DiffVisitor {
             hasher.finalize().as_slice().try_into().unwrap()
         };
         let mut diff_hasher = self.hasher.write().ok()?;
-        if diff_hasher
-            .data
-            .get(&id_hash)
-            .map(|digest| digest != &new_digest)
-            .unwrap_or(true)
-        {
+        let old_digest = diff_hasher.data.get(&id_hash)?;
+        if old_digest != &new_digest {
             diff_hasher.new_data.insert(id_hash, new_digest);
             Some(true)
         } else {
