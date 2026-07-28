@@ -157,7 +157,7 @@ macro_rules! seq_write {
 
 impl Predicate {
     /// Formats a predicate into a SQLite `WHERE` clause.
-    pub fn where_clause(&self) -> Result<(String, Vec<ToSqlOutput>)> {
+    pub fn where_clause(&'_ self) -> Result<(String, Vec<ToSqlOutput<'_>>)> {
         let mut buf = String::from("WHERE ");
         let mut vars = Vec::new();
         self.sql_r(&mut buf, &mut vars)

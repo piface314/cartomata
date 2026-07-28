@@ -143,7 +143,7 @@ impl<'lua> FromLua<'lua> for Box<dyn Layer> {
 }
 
 impl Decoder<DynCard> for LuaDecoder {
-    fn decode(&self, card: &DynCard) -> Result<LayerStack> {
+    fn decode(&'_ self, card: &DynCard) -> Result<LayerStack<'_>> {
         let layers: Variadic<Box<dyn Layer>> = self
             .decode
             .call(card.0.clone())

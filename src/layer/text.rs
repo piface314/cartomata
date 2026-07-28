@@ -54,7 +54,7 @@ const fn default_color() -> Color {
 }
 
 impl TextLayer {
-    fn layout_params(&self) -> Vec<LayoutAttr> {
+    fn layout_params(&'_ self) -> Vec<LayoutAttr<'_>> {
         let mut params = Vec::new();
         self.align.map(|x| params.push(LayoutAttr::Alignment(x)));
         self.auto_dir.map(|x| params.push(LayoutAttr::AutoDir(x)));

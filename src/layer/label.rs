@@ -51,7 +51,7 @@ const fn default_text_origin() -> TextOrigin {
 }
 
 impl LabelLayer {
-    fn layout_params(&self) -> Vec<LayoutAttr> {
+    fn layout_params(&'_ self) -> Vec<LayoutAttr<'_>> {
         let mut params = Vec::new();
         self.auto_dir.map(|x| params.push(LayoutAttr::AutoDir(x)));
         self.dpi.map(|x| params.push(LayoutAttr::Dpi(x)));
