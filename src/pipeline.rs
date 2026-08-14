@@ -2,11 +2,11 @@ mod parallel;
 mod sequential;
 
 use crate::data::Card;
-use crate::error::{Error, Result};
+use crate::error::RuntimeError;
 use crate::logs::{self, LogMsg, ProgressBar};
 pub use crate::pipeline::parallel::ParallelismOptions;
 use crate::template::Template;
-
+use std::error::Error;
 use std::marker::PhantomData;
 use std::sync::mpsc::Sender;
 use std::thread::JoinHandle;
@@ -29,15 +29,15 @@ pub trait Visitor<C: Card, T: Template<C>> {
 
     fn on_total(&self, template: &T, total: usize) {}
 
-    fn on_read(&self, template: &T, card: &Result<C>) -> bool {
+    fn on_read(&self, template: &T, card: &Result<C, Box<dyn Error>>) -> bool {
         true
     }
 
-    fn on_read_err(&self, template: &T, i: usize, error: Error) {
-        self.on_read_err_r(template, i, &error);
+    fn on_read_err(&self, template: &T, i: usize, error: Box<dyn Error>) {
+        self.on_read_err_r(template, i, error.as_ref());
     }
 
-    fn on_read_err_r(&self, template: &T, i: usize, error: &Error) {}
+    fn on_read_err_r(&self, template: &T, i: usize, error: &dyn Error) {}
 
     fn on_iter_start(&self, template: &T, worker: usize, i: usize, card: &C) {}
 
@@ -47,13 +47,13 @@ pub trait Visitor<C: Card, T: Template<C>> {
 
     fn on_iter_ok_r(&self, template: &T, worker: usize, i: usize, card: &C) {}
 
-    fn on_iter_err(&self, template: &T, worker: usize, i: usize, card: C, error: Error) {
+    fn on_iter_err(&self, template: &T, worker: usize, i: usize, card: C, error: RuntimeError) {
         self.on_iter_err_r(template, worker, i, &card, &error);
     }
 
-    fn on_iter_err_r(&self, template: &T, worker: usize, i: usize, card: &C, error: &Error) {}
+    fn on_iter_err_r(&self, template: &T, worker: usize, i: usize, card: &C, error: &RuntimeError) {}
 
-    fn on_finish(&self, template: &T, worker: usize, result: &Result<()>) {}
+    fn on_finish(&self, template: &T, worker: usize, result: &Result<(), RuntimeError>) {}
 }
 
 impl<C: Card, T: Template<C>> Visitor<C, T> for () {}
@@ -64,7 +64,7 @@ pub struct LogVisitor {
 }
 
 impl LogVisitor {
-    pub fn new(n_workers: usize) -> (Self, JoinHandle<Result<()>>) {
+    pub fn new(n_workers: usize) -> (Self, JoinHandle<std::io::Result<()>>) {
         let (tx, handle) = ProgressBar::spawn_stderr(n_workers);
         (Self { tx }, handle)
     }
@@ -100,7 +100,7 @@ impl<C: Card, T: Template<C>> Visitor<C, T> for LogVisitor {
         self.log(LogMsg::Total(total))
     }
 
-    fn on_read_err_r(&self, _template: &T, i: usize, error: &Error) {
+    fn on_read_err_r(&self, _template: &T, i: usize, error: &dyn Error) {
         self.log(LogMsg::Warn(
             0,
             format!("failed to read card (#{i}): {error}"),
@@ -119,7 +119,7 @@ impl<C: Card, T: Template<C>> Visitor<C, T> for LogVisitor {
         self.log(LogMsg::Progress(worker));
     }
 
-    fn on_iter_err_r(&self, template: &T, worker: usize, i: usize, card: &C, error: &Error) {
+    fn on_iter_err_r(&self, template: &T, worker: usize, i: usize, card: &C, error: &RuntimeError) {
         let card_id = template.identify(card);
         self.log(LogMsg::Warn(
             worker,
@@ -127,7 +127,7 @@ impl<C: Card, T: Template<C>> Visitor<C, T> for LogVisitor {
         ))
     }
 
-    fn on_finish(&self, template: &T, worker: usize, result: &Result<()>) {
+    fn on_finish(&self, template: &T, worker: usize, result: &Result<(), RuntimeError>) {
         let msg = match (result, worker, template.name()) {
             (Ok(()), 0, Some(name)) => LogMsg::Success(
                 worker,
@@ -200,14 +200,14 @@ impl<C: Card, T: Template<C>, V1: Visitor<C, T>, V2: Visitor<C, T>> Visitor<C, T
     chain_method!(fn on_start(&self, template: &T, worker: usize));
     chain_method!(fn on_total(&self, template: &T, total: usize));
     chain_method!(fn on_iter_start(&self, template: &T, worker: usize, i: usize, card: &C));
-    chain_method!(fn on_finish(&self, template: &T, worker: usize, result: &Result<()>));
+    chain_method!(fn on_finish(&self, template: &T, worker: usize, result: &Result<(), RuntimeError>));
 
-    fn on_read(&self, template: &T, card: &Result<C>) -> bool {
+    fn on_read(&self, template: &T, card: &Result<C, Box<dyn Error>>) -> bool {
         self.visitor1.on_read(template, card) && self.visitor2.on_read(template, card)
     }
 
-    fn on_read_err(&self, template: &T, i: usize, error: Error) {
-        self.visitor1.on_read_err_r(template, i, &error);
+    fn on_read_err(&self, template: &T, i: usize, error: Box<dyn Error>) {
+        self.visitor1.on_read_err_r(template, i, error.as_ref());
         self.visitor2.on_read_err(template, i, error);
     }
 
@@ -216,7 +216,7 @@ impl<C: Card, T: Template<C>, V1: Visitor<C, T>, V2: Visitor<C, T>> Visitor<C, T
         self.visitor2.on_iter_ok(template, worker, i, card);
     }
 
-    fn on_iter_err(&self, template: &T, worker: usize, i: usize, card: C, error: Error) {
+    fn on_iter_err(&self, template: &T, worker: usize, i: usize, card: C, error: RuntimeError) {
         self.visitor1
             .on_iter_err_r(template, worker, i, &card, &error);
         self.visitor2.on_iter_err(template, worker, i, card, error);

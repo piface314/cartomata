@@ -1,19 +1,19 @@
 use crate::cli::card::DynCard;
 use crate::cli::config::Config;
 use crate::cli::decode::{LuaDecoder, LuaDecoderFactory};
+use crate::cli::error::{DynTemplateError, SourceError};
 use crate::cli::output::{OutputMap, Resize};
 #[cfg(feature = "csv")]
 use crate::data::source::{CsvSource, CsvSourceConfig};
 #[cfg(feature = "sqlite")]
 use crate::data::source::{SqliteSource, SqliteSourceConfig};
 use crate::data::{Card, DataSource};
-use crate::error::{Error, Result};
 use crate::image::{ImageMap, ImgBackend};
 use crate::template::Template;
 use crate::text::FontMap;
-
 use clap::ValueEnum;
 use libvips::VipsImage;
+use std::error::Error;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -27,7 +27,7 @@ pub struct DynTemplate {
 }
 
 impl DynTemplate {
-    pub fn from_config(config: Config, folder: PathBuf) -> Result<Self> {
+    pub fn from_config(config: Config, folder: PathBuf) -> Result<Self, DynTemplateError> {
         let assets_folder = config.assets_folder(&folder);
         let name = config.base.name;
 
@@ -89,7 +89,7 @@ impl Template<DynCard> for DynTemplate {
         Some(&self.name)
     }
 
-    fn source(&self, key: Self::SourceKey) -> Result<Box<dyn DataSource<DynCard>>> {
+    fn source(&self, key: Self::SourceKey) -> Result<Box<dyn DataSource<DynCard>>, impl Error> {
         self.source_map.select(key.0, key.1)
     }
 
@@ -97,7 +97,7 @@ impl Template<DynCard> for DynTemplate {
         self.output_map.identify(card)
     }
 
-    fn decoder(&self) -> Result<Self::Decoder> {
+    fn decoder(&self) -> Result<Self::Decoder, impl Error> {
         self.decoder_factory.create()
     }
 
@@ -109,7 +109,7 @@ impl Template<DynCard> for DynTemplate {
         &self.font_map
     }
 
-    fn output(&self, card: &DynCard, img: &VipsImage, ib: &ImgBackend) -> Result<()> {
+    fn output(&self, card: &DynCard, img: &VipsImage, ib: &ImgBackend) -> Result<(), impl Error> {
         self.output_map.write(card, img, ib)
     }
 }
@@ -165,16 +165,17 @@ impl SourceMap {
         &self,
         src_type: Option<SourceType>,
         path: impl AsRef<Path>,
-    ) -> Result<Box<dyn DataSource<C>>> {
+    ) -> Result<Box<dyn DataSource<C>>, SourceError> {
         let path = path.as_ref();
         let src_type = src_type
             .or_else(|| Self::infer_source_type(path))
-            .ok_or_else(|| Error::source_inference(path))?;
+            .ok_or_else(|| SourceError::cant_infer(path))?;
         match src_type {
             #[cfg(feature = "csv")]
             SourceType::Csv => {
                 let config = self.csv.unwrap_or_default();
-                let source = CsvSource::open(config, &path)?;
+                let source = CsvSource::open(config, &path)
+                    .map_err(|e| SourceError::cant_open_csv(&path, e))?;
                 Ok(Box::new(source) as Box<dyn DataSource<C>>)
             }
             #[cfg(feature = "sqlite")]
@@ -182,8 +183,9 @@ impl SourceMap {
                 let config = self
                     .sqlite
                     .clone()
-                    .ok_or_else(|| Error::no_source_config("sqlite"))?;
-                let source = SqliteSource::open(config, &path)?;
+                    .ok_or_else(|| SourceError::missing_config("sqlite"))?;
+                let source = SqliteSource::open(config, &path)
+                    .map_err(|e| SourceError::cant_open_sqlite(&path, e))?;
                 Ok(Box::new(source) as Box<dyn DataSource<C>>)
             }
         }

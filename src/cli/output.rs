@@ -1,7 +1,6 @@
 use crate::cli::card::DynCard;
-use crate::error::Result;
+use crate::error::ImgError;
 use crate::image::ImgBackend;
-
 use libvips::VipsImage;
 use regex::Regex;
 use serde::de::{self, Visitor};
@@ -57,7 +56,7 @@ impl OutputMap {
         .to_string()
     }
 
-    pub fn write(&self, card: &DynCard, img: &VipsImage, ib: &ImgBackend) -> Result<()> {
+    pub fn write(&self, card: &DynCard, img: &VipsImage, ib: &ImgBackend) -> Result<(), ImgError> {
         let img = ib.scale_to(img, self.resize.width, self.resize.height)?;
         let mut path = self.prefix.clone();
         path.push(self.identify(card));

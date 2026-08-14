@@ -1,7 +1,7 @@
-use crate::error::Result;
 use crate::image::Color;
 use crate::text::attr::{Gravity, ITagAttr, ImgAttr, Points, Scale, SpanAttr, TagAttr};
 use crate::text::parser::TextParser;
+use crate::error::{TextError, MarkupParseError};
 
 #[derive(Debug, Clone)]
 pub enum Markup {
@@ -12,11 +12,11 @@ pub enum Markup {
 }
 
 impl Markup {
-    pub fn from_string(markup: &str) -> Result<Self> {
+    pub fn from_string(markup: &str) -> Result<Self, MarkupParseError> {
         TextParser::new(markup).parse()
     }
 
-    pub fn push_attr(&mut self, key: &str, value: &str) -> Result<()> {
+    pub fn push_attr(&mut self, key: &str, value: &str) -> Result<(), TextError> {
         match self {
             Self::SpanTag(attrs, _) => attrs.push(SpanAttr::from_key_value(key, value)?),
             Self::ImgTag(attrs) => attrs.push(key, value)?,

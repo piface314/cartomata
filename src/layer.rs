@@ -5,17 +5,15 @@ mod asset;
 mod label;
 mod text;
 
-pub use artwork::ArtworkLayer;
-pub use asset::AssetLayer;
-pub use label::LabelLayer;
-pub use text::TextLayer;
-
-use crate::error::Result;
+use crate::error::ImgError;
 use crate::image::{ImageMap, ImgBackend};
 use crate::text::FontMap;
-
+pub use artwork::ArtworkLayer;
+pub use asset::AssetLayer;
 use core::fmt::Debug;
+pub use label::LabelLayer;
 use libvips::VipsImage;
+pub use text::TextLayer;
 
 #[derive(Clone)]
 pub struct RenderContext<'a> {
@@ -24,14 +22,14 @@ pub struct RenderContext<'a> {
     pub img_map: &'a ImageMap,
 }
 pub trait Layer: Debug {
-    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage>;
+    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage, ImgError>;
 }
 
 #[derive(Debug)]
 pub struct LayerStack<'a>(pub Vec<Box<dyn Layer + 'a>>);
 
 impl<'a> LayerStack<'a> {
-    pub fn render(self, ctx: &RenderContext) -> Result<VipsImage> {
+    pub fn render(self, ctx: &RenderContext) -> Result<VipsImage, ImgError> {
         let bg = ctx.img_map.background;
         let (w, h) = ctx.img_map.card_size;
 

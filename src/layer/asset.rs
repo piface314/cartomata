@@ -1,8 +1,8 @@
 //! Represents an image layer loaded from the template assets
 
-use crate::error::Result;
 use crate::image::{BlendMode, FitMode, Origin, Stroke};
 use crate::layer::{Layer, RenderContext};
+use crate::error::ImgError;
 
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
@@ -33,7 +33,7 @@ pub struct AssetLayer {
 }
 
 impl Layer for AssetLayer {
-    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage> {
+    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage, ImgError> {
         let ib = ctx.backend;
         let img_map = ctx.img_map;
 

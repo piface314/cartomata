@@ -1,8 +1,8 @@
 //! Represents an image layer loaded from artwork folder.
 
-use crate::error::Result;
 use crate::image::{BlendMode, FitMode, Origin, Stroke};
 use crate::layer::{Layer, RenderContext};
+use crate::error::ImgError;
 
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
@@ -37,10 +37,12 @@ fn default_origin() -> Origin {
 }
 
 impl Layer for ArtworkLayer {
-    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage> {
+    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage, ImgError> {
         let img_map = ctx.img_map;
         let ib = ctx.backend;
-        let path = img_map.artwork_path(&self.id)?;
+        let path = img_map
+            .artwork_path(&self.id)
+            .ok_or_else(|| ImgError::no_artwork(&self.id))?;
         let artwork = ib.open(path.to_string_lossy())?;
         let artwork = ib.scale_to_fit(&artwork, self.w, self.h, self.fit)?;
         let artwork = if let Some(stroke) = self.stroke {

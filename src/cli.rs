@@ -2,20 +2,21 @@
 mod card;
 mod config;
 mod decode;
+mod error;
 mod output;
 mod template;
 
 pub use crate::cli::card::DynCard;
 use crate::cli::config::Config;
+use crate::cli::error::CliError;
 use crate::cli::output::Resize;
 use crate::cli::template::{DynTemplate, SourceType};
 use crate::data::Predicate;
-use crate::error::{Error, Result};
+use crate::error::RuntimeError;
 use crate::logs;
 use crate::pipeline::Chain;
 use crate::pipeline::Visitor;
 use crate::pipeline::{LogVisitor, ParallelismOptions, Pipeline};
-
 use clap::Parser;
 use std::num::NonZero;
 use std::path::PathBuf;
@@ -93,7 +94,7 @@ impl Cli {
         })
     }
 
-    pub fn run_internal() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub fn run_internal() -> std::result::Result<(), CliError> {
         let cli = Self::parse();
         let (folder, config) = Config::find(cli.template.as_ref())?;
 
@@ -120,7 +121,9 @@ impl Cli {
             pipeline.run(source_key, filter);
             handle
         };
-        v_handle.join().map_err(|_| Error::thread_join(0))??;
+        v_handle
+            .join()
+            .map_err(|_| RuntimeError::thread_join(0))??;
         Ok(())
     }
 
@@ -129,9 +132,9 @@ impl Cli {
         _source_key: &(Option<SourceType>, PathBuf),
         _output: &PathBuf,
         n_workers: usize,
-    ) -> Result<(
+    ) -> std::io::Result<(
         impl Visitor<DynCard, DynTemplate> + Clone,
-        JoinHandle<Result<()>>,
+        JoinHandle<std::io::Result<()>>,
     )> {
         Ok(LogVisitor::new(n_workers))
     }
@@ -141,9 +144,9 @@ impl Cli {
         source_key: &(Option<SourceType>, PathBuf),
         output: &Option<PathBuf>,
         n_workers: usize,
-    ) -> Result<(
+    ) -> std::io::Result<(
         impl Visitor<DynCard, DynTemplate> + Clone,
-        JoinHandle<Result<()>>,
+        JoinHandle<std::io::Result<()>>,
     )> {
         use crate::diff::DiffVisitor;
         use md5::{Digest, Md5};
@@ -152,11 +155,8 @@ impl Cli {
 
         let diff_name = {
             let mut hasher = Md5::new();
-            let source_key = (
-                source_key.0.clone(),
-                source_key.1.canonicalize().map_err(|_| Error::unknown())?,
-            );
-            let output = output.canonicalize().map_err(|_| Error::unknown())?;
+            let source_key = (source_key.0.clone(), source_key.1.canonicalize()?);
+            let output = output.canonicalize()?;
             hasher.update(format!("{source_key:?}:{output:?}").as_bytes());
             let digest = hasher.finalize();
             let mut hex_digest = String::new();
@@ -166,10 +166,10 @@ impl Cli {
             hex_digest
         };
         output.push(".diff");
-        std::fs::create_dir_all(&output).map_err(|_| Error::unknown())?;
+        std::fs::create_dir_all(&output)?;
         output.push(diff_name);
         let (log_visitor, handle) = LogVisitor::new(n_workers);
-        let diff_visitor = DiffVisitor::new(Some(log_visitor.tx()), output)?;
+        let diff_visitor = DiffVisitor::new(Some(log_visitor.tx()), output);
         let visitor = log_visitor.chain(diff_visitor);
         Ok((visitor, handle))
     }

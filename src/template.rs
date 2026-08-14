@@ -1,6 +1,7 @@
+use std::error::Error;
+
 use crate::data::{Card, DataSource};
 use crate::decode::Decoder;
-use crate::error::Result;
 use crate::image::{ImageMap, ImgBackend};
 use crate::text::FontMap;
 
@@ -14,10 +15,10 @@ pub trait Template<C: Card> {
         None
     }
 
-    fn source(&self, key: Self::SourceKey) -> Result<Box<dyn DataSource<C>>>;
+    fn source(&self, key: Self::SourceKey) -> Result<Box<dyn DataSource<C>>, impl Error>;
     fn identify(&self, card: &C) -> String;
-    fn decoder(&self) -> Result<Self::Decoder>;
+    fn decoder(&self) -> Result<Self::Decoder, impl Error>;
     fn resources(&self) -> &ImageMap;
     fn fonts(&self) -> &FontMap;
-    fn output(&self, card: &C, img: &VipsImage, ib: &ImgBackend) -> Result<()>;
+    fn output(&self, card: &C, img: &VipsImage, ib: &ImgBackend) -> Result<(), impl Error>;
 }

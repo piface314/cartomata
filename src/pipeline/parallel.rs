@@ -1,12 +1,10 @@
 use crate::data::{Card, Predicate};
 use crate::decode::Decoder;
-use crate::error::{Error, Result};
+use crate::error::RuntimeError;
 use crate::image::ImgBackend;
 use crate::layer::RenderContext;
-use crate::template::Template;
-
 use crate::pipeline::{Pipeline, Visitor};
-
+use crate::template::Template;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::num::NonZero;
@@ -15,13 +13,13 @@ use std::thread::{self, JoinHandle};
 
 macro_rules! lock {
     (read $T:literal $lock:expr) => {
-        $lock.read().map_err(|e| Error::read_lock($T, e))?
+        $lock.read().map_err(|e| RuntimeError::read_lock($T, e))?
     };
     (write $T:literal $lock:expr) => {
-        $lock.read().map_err(|e| Error::write_lock($T, e))?
+        $lock.read().map_err(|e| RuntimeError::write_lock($T, e))?
     };
     ($T:literal $lock:expr) => {
-        $lock.lock().map_err(|e| Error::mutex_lock($T, e))?
+        $lock.lock().map_err(|e| RuntimeError::mutex_lock($T, e))?
     };
 }
 
@@ -71,7 +69,7 @@ where
         source_key: T::SourceKey,
         filter: Option<Predicate>,
         opt: ParallelismOptions,
-    ) -> Result<PipelineJoinHandle<C, T, V>> {
+    ) -> Result<PipelineJoinHandle<C, T, V>, RuntimeError> {
         let nw = opt.n_workers;
         let batch = opt.batch_size;
 
@@ -87,12 +85,15 @@ where
 
             thread::spawn(move || {
                 let template = lock!(read "template" template);
-                let mut source = template.source(source_key)?;
+                let mut source = template
+                    .source(source_key)
+                    .map_err(RuntimeError::cant_open_source)?;
                 visitor.on_start(&*template, 0);
 
                 let mut total: usize = 0;
                 let cards_iter = source
-                    .read(filter)?
+                    .read(filter)
+                    .map_err(RuntimeError::cant_read)?
                     .filter(|card_res| visitor.on_read(&*template, card_res));
                 for (i, card) in cards_iter.enumerate() {
                     total += 1;
@@ -139,7 +140,7 @@ where
 pub struct PipelineJoinHandle<C: Card, T: Template<C>, V: Visitor<C, T> = ()> {
     template: Arc<RwLock<T>>,
     visitor: V,
-    handles: Vec<JoinHandle<Result<()>>>,
+    handles: Vec<JoinHandle<Result<(), RuntimeError>>>,
     _marker: PhantomData<C>,
 }
 
@@ -149,26 +150,30 @@ where
     T: Template<C>,
     V: Visitor<C, T>,
 {
-    fn new(template: Arc<RwLock<T>>, visitor: V, handles: Vec<JoinHandle<Result<()>>>) -> Self {
+    fn new(
+        template: Arc<RwLock<T>>,
+        visitor: V,
+        handles: Vec<JoinHandle<Result<(), RuntimeError>>>,
+    ) -> Self {
         Self { template, visitor, handles, _marker: PhantomData }
     }
 
-    pub fn join(self) -> Result<(T, V)> {
+    pub fn join(self) -> Result<(T, V), RuntimeError> {
         let visitor = self.visitor;
 
         let mut handles = self.handles.into_iter().enumerate();
 
         let (i, handle) = handles.next().expect("at least 1 join handle should exist");
-        let base_result = handle.join().map_err(|_| Error::thread_join(i))?;
+        let base_result = handle.join().map_err(|_| RuntimeError::thread_join(i))?;
 
         for (i, handle) in handles {
-            let _ = handle.join().map_err(|_| Error::thread_join(i))?;
+            let _ = handle.join().map_err(|_| RuntimeError::thread_join(i))?;
         }
 
         let template = Arc::into_inner(self.template)
             .expect("all handles should have been joined")
             .into_inner()
-            .map_err(|e| Error::read_lock("template", e))?;
+            .map_err(|e| RuntimeError::read_lock("template", e))?;
         visitor.on_finish(&template, 0, &base_result);
 
         Ok((template, visitor))
@@ -201,29 +206,29 @@ impl<C: Card> CardQueue<C> {
         }
     }
 
-    fn push(&self, index: usize, card: C) -> Result<()> {
+    fn push(&self, index: usize, card: C) -> Result<(), RuntimeError> {
         let state = lock!("card queue" self.queue);
         let mut state = self
             .cond
             .wait_while(state, |s| s.queue.len() >= self.capacity)
-            .map_err(|e| Error::mutex_lock("card queue", e))?;
+            .map_err(|e| RuntimeError::mutex_lock("card queue", e))?;
         state.queue.push_back((index, card));
         self.cond.notify_one();
         Ok(())
     }
 
-    fn pop(&self) -> Result<Option<(usize, C)>> {
+    fn pop(&self) -> Result<Option<(usize, C)>, RuntimeError> {
         let state = lock!("card queue" self.queue);
         let mut state = self
             .cond
             .wait_while(state, |s| s.queue.is_empty() && !s.done)
-            .map_err(|e| Error::mutex_lock("card queue", e))?;
+            .map_err(|e| RuntimeError::mutex_lock("card queue", e))?;
         let card = state.queue.pop_front();
         self.cond.notify_all();
         Ok(card)
     }
 
-    fn done(&self) -> Result<()> {
+    fn done(&self) -> Result<(), RuntimeError> {
         let mut state = lock!("card queue" self.queue);
         state.done = true;
         self.cond.notify_all();
@@ -240,13 +245,16 @@ struct Worker<'a, C: Card, T: Template<C>, V: Visitor<C, T>> {
 }
 
 impl<'a, C: Card + Send, T: Template<C>, V: Visitor<C, T>> Worker<'a, C, T, V> {
-    fn run(&self) -> Result<()> {
+    fn run(&self) -> Result<(), RuntimeError> {
         let ctx = RenderContext {
             img_map: self.template.resources(),
             font_map: self.template.fonts(),
             backend: self.img_backend,
         };
-        let decoder = self.template.decoder()?;
+        let decoder = self
+            .template
+            .decoder()
+            .map_err(RuntimeError::cant_init_decoder)?;
         while let Some((i, card)) = self.queue.pop()? {
             self.visitor.on_iter_start(self.template, self.id, i, &card);
             match self.process(&decoder, &card, &ctx) {
@@ -257,10 +265,17 @@ impl<'a, C: Card + Send, T: Template<C>, V: Visitor<C, T>> Worker<'a, C, T, V> {
         Ok(())
     }
 
-    fn process(&self, decoder: &T::Decoder, card: &C, ctx: &RenderContext) -> Result<()> {
-        let layers = decoder.decode(card)?;
+    fn process(
+        &self,
+        decoder: &T::Decoder,
+        card: &C,
+        ctx: &RenderContext,
+    ) -> Result<(), RuntimeError> {
+        let layers = decoder.decode(card).map_err(RuntimeError::cant_decode)?;
         let img = layers.render(ctx)?;
-        self.template.output(card, &img, &ctx.backend)?;
+        self.template
+            .output(card, &img, &ctx.backend)
+            .map_err(RuntimeError::cant_write)?;
         Ok(())
     }
 }

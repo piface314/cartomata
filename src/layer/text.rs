@@ -1,7 +1,7 @@
 //! Represents a layer to render arbitrary text, including single line labels
 //! or multiline text areas.
 
-use crate::error::Result;
+use crate::error::ImgError;
 use crate::image::{BlendMode, Color, Origin, Stroke, TextOrigin};
 use crate::layer::{Layer, RenderContext};
 use crate::text::attr::{Alignment, Direction, Gravity, GravityHint, LayoutAttr, WrapMode};
@@ -79,7 +79,7 @@ impl TextLayer {
 }
 
 impl Layer for TextLayer {
-    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage> {
+    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage, ImgError> {
         let img_map = ctx.img_map;
         let font_map = ctx.font_map;
         let ib = ctx.backend;

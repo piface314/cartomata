@@ -1,16 +1,16 @@
 //! Implementation for the dynamic decoder, using Lua scripts.
 
 use crate::abox::AliasBox;
+use crate::cli::error::{DecoderCreateError, DecoderOpenError};
 use crate::cli::DynCard;
 use crate::decode::Decoder;
-use crate::error::{Error, Result};
 use crate::layer::{ArtworkLayer, AssetLayer, LabelLayer, TextLayer};
 use crate::layer::{Layer, LayerStack};
-
 use mlua::{
     Error as LuaError, FromLua, Function, Lua, Result as LuaResult, Table, UserData,
     Value as LuaValue, Variadic,
 };
+use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 
@@ -21,16 +21,16 @@ pub struct LuaDecoderFactory {
 }
 
 impl LuaDecoderFactory {
-    pub fn new(folder: PathBuf) -> Result<Self> {
+    pub fn new(folder: PathBuf) -> Result<Self, DecoderOpenError> {
         let mut path = folder.clone();
         path.push("decode.lua");
-        let chunk = fs::read_to_string(&path)
-            .map_err(|e| Error::decoder_open(path, e))?;
+        let chunk = fs::read_to_string(&path).map_err(|e| DecoderOpenError::new(path, e))?;
         Ok(Self { folder, chunk })
     }
 
-    pub fn create(&self) -> Result<LuaDecoder> {
-        LuaDecoder::new(&self.folder, &self.chunk)
+    pub fn create(&self) -> Result<LuaDecoder, DecoderCreateError> {
+        let decoder = LuaDecoder::new(&self.folder, &self.chunk)?;
+        Ok(decoder)
     }
 }
 
@@ -50,25 +50,13 @@ macro_rules! register {
 }
 
 impl LuaDecoder {
-    fn new(req_path: &PathBuf, chunk: &str) -> Result<Self> {
+    fn new(req_path: &PathBuf, chunk: &str) -> LuaResult<Self> {
         let lua = AliasBox::new(Lua::new());
-
-        Self::create_layer_module(&lua).map_err(Error::decoder_prep)?;
-
-        Self::extend_package_path(&lua, req_path.display().to_string().as_str())
-            .map_err(Error::decoder_prep)?;
-
-        let decode: Function = lua
-            .load(chunk)
-            .call(())
-            .map_err(Error::decoder_prep)?;
-
+        Self::create_layer_module(&lua)?;
+        Self::extend_package_path(&lua, req_path.display().to_string().as_str())?;
+        let decode: Function = lua.load(chunk).call(())?;
         let decode = unsafe { std::mem::transmute(decode) };
-
-        Ok(Self {
-            decode,
-            _lua: lua,
-        })
+        Ok(Self { decode, _lua: lua })
     }
 
     fn extend_package_path(lua: &Lua, req_path: &str) -> LuaResult<()> {
@@ -143,11 +131,8 @@ impl<'lua> FromLua<'lua> for Box<dyn Layer> {
 }
 
 impl Decoder<DynCard> for LuaDecoder {
-    fn decode(&'_ self, card: &DynCard) -> Result<LayerStack<'_>> {
-        let layers: Variadic<Box<dyn Layer>> = self
-            .decode
-            .call(card.0.clone())
-            .map_err(Error::decode)?;
-        Ok(LayerStack(layers.into_iter().collect()))
+    fn decode(&'_ self, card: &DynCard) -> Result<LayerStack<'_>, impl Error> {
+        let layers: Variadic<Box<dyn Layer>> = self.decode.call(card.0.clone())?;
+        Ok::<LayerStack<'_>, LuaError>(LayerStack(layers.into_iter().collect()))
     }
 }

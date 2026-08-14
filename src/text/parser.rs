@@ -1,7 +1,6 @@
-use crate::error::{Error, Result};
+use crate::error::MarkupParseError;
 use crate::text::attr::ImgAttr;
 use crate::text::markup::Markup;
-
 use logos::{Lexer, Logos};
 use regex::Regex;
 use std::fmt;
@@ -124,23 +123,19 @@ impl<'src> TextParser<'src> {
     pub fn new(markup: &'src str) -> Self {
         let text_lexer = TextToken::lexer(markup);
         let tag_lexer = Token::lexer(markup);
-        Self {
-            text_lexer,
-            tag_lexer,
-            lexer_context: LexerContext::Free,
-        }
+        Self { text_lexer, tag_lexer, lexer_context: LexerContext::Free }
     }
 
-    fn next_token(&mut self) -> Result<Option<Token>> {
+    fn next_token(&mut self) -> Result<Option<Token>, MarkupParseError> {
         let output = match self.lexer_context {
             LexerContext::Free => self.text_lexer.next().map(|r| {
-                r.map_err(|_| Error::scan(self.text_lexer.slice()))
+                r.map_err(|_| MarkupParseError::scan(self.text_lexer.slice()))
                     .map(|t| t.into())
             }),
             LexerContext::Tag => self
                 .tag_lexer
                 .next()
-                .map(|r| r.map_err(|_| Error::scan(self.tag_lexer.slice()))),
+                .map(|r| r.map_err(|_| MarkupParseError::scan(self.tag_lexer.slice()))),
         };
         output.transpose()
     }
@@ -173,7 +168,7 @@ impl<'src> TextParser<'src> {
     }
 
     #[must_use]
-    pub fn parse(mut self) -> Result<Markup> {
+    pub fn parse(mut self) -> Result<Markup, MarkupParseError> {
         let mut elems: Vec<Markup> = vec![Markup::Root(Vec::new())];
         let mut token = self.next_token()?;
         let mut stack = vec![Symbol::M];
@@ -271,7 +266,11 @@ impl<'src> TextParser<'src> {
         }
     }
 
-    fn syntax_error(&self, expected: &str) -> Error {
-        Error::syntax_error_expecting(expected, self.text_lexer.source(), self.span().start)
+    fn syntax_error(&self, expected: &str) -> MarkupParseError {
+        MarkupParseError::syntax_error_expecting(
+            expected,
+            self.text_lexer.source(),
+            self.span().start,
+        )
     }
 }

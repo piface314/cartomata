@@ -62,8 +62,7 @@ impl<'de> Deserialize<'de> for DynCard {
     }
 }
 
-
-#[cfg(feature="diff")]
+#[cfg(feature = "diff")]
 impl DiffHash for DynCard {
     fn diff_hash(&self, state: &mut md5::Md5) {
         for (k, v) in self.0.iter().sorted_by_key(|pair| pair.0) {

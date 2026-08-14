@@ -2,17 +2,15 @@
 
 use crate::abox::AliasBox;
 use crate::data::predicate::ValueSet;
+use crate::data::source::Result as SrcResult;
 use crate::data::{Card, DataSource, Predicate, Value};
-use crate::error::{Error, Result};
-
 use itertools::Itertools;
 use rusqlite::types::{ToSqlOutput, Value as SqlValue, ValueRef as SqlValueRef};
-use rusqlite::{params_from_iter, Connection, Statement};
+use rusqlite::{params_from_iter, Connection, Error as SqliteError, Statement};
 use serde::Deserialize;
 use serde_rusqlite::{from_rows, DeserRows};
 use std::fmt::Write;
 use std::path::Path;
-
 
 /// Configurations for reading a SQLite file.
 #[derive(Debug, Clone, Deserialize)]
@@ -62,9 +60,12 @@ pub struct SqliteSource {
 }
 
 impl SqliteSource {
-    pub fn open(config: SqliteSourceConfig, path: impl AsRef<Path>) -> Result<SqliteSource> {
+    pub fn open(
+        config: SqliteSourceConfig,
+        path: impl AsRef<Path>,
+    ) -> Result<SqliteSource, SqliteError> {
         let path = path.as_ref();
-        let connection = Connection::open(path).map_err(|e| Error::source_open(path, e))?;
+        let connection = Connection::open(path)?;
         Ok(Self {
             query: config.query,
             with_predicate: config.with_predicate,
@@ -77,7 +78,7 @@ impl<'s, C: Card> DataSource<C> for SqliteSource {
     fn read(
         &mut self,
         filter: Option<Predicate>,
-    ) -> Result<Box<dyn Iterator<Item = Result<C>> + '_>> {
+    ) -> SrcResult<Box<dyn Iterator<Item = SrcResult<C>> + '_>> {
         let (stmt, vars) = match &filter {
             Some(filter) => {
                 let (clause, vars) = filter.where_clause()?;
@@ -91,23 +92,16 @@ impl<'s, C: Card> DataSource<C> for SqliteSource {
                         query.push_str(&clause);
                         query
                     });
-                self.connection
-                    .prepare(&query)
-                    .map_err(Error::source_prep)
-                    .map(|stmt| (stmt, vars))?
+                self.connection.prepare(&query).map(|stmt| (stmt, vars))?
             }
             None => self
                 .connection
                 .prepare(&self.query)
-                .map_err(Error::source_prep)
                 .map(|stmt| (stmt, Vec::new()))?,
         };
 
         let mut stmt = AliasBox::new(stmt);
-        let rows = from_rows::<C>(
-            stmt.query(params_from_iter(vars.iter()))
-                .map_err(Error::source_prep)?,
-        );
+        let rows = from_rows::<C>(stmt.query(params_from_iter(vars.iter()))?);
         let rows = unsafe { std::mem::transmute(rows) };
         Ok(Box::new(SqliteIterator { rows, _stmt: stmt }))
     }
@@ -121,9 +115,10 @@ struct SqliteIterator<'c, C: Card> {
 }
 
 impl<'c, C: Card> Iterator for SqliteIterator<'c, C> {
-    type Item = Result<C>;
+    type Item = SrcResult<C>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.rows.next().map(|r| r.map_err(Error::record_read))
+        let result = self.rows.next()?;
+        Some(result.map_err(|e| e.into()))
     }
 }
 
@@ -157,11 +152,10 @@ macro_rules! seq_write {
 
 impl Predicate {
     /// Formats a predicate into a SQLite `WHERE` clause.
-    pub fn where_clause(&'_ self) -> Result<(String, Vec<ToSqlOutput<'_>>)> {
+    pub fn where_clause(&'_ self) -> Result<(String, Vec<ToSqlOutput<'_>>), std::fmt::Error> {
         let mut buf = String::from("WHERE ");
         let mut vars = Vec::new();
-        self.sql_r(&mut buf, &mut vars)
-            .map_err(Error::source_prep)?;
+        self.sql_r(&mut buf, &mut vars)?;
         Ok((buf, vars))
     }
 

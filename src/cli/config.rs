@@ -1,13 +1,12 @@
 //! Configuration for dynamic templates.
 
+use crate::cli::error::{ConfigError, VarError};
 #[cfg(feature = "csv")]
 use crate::data::source::CsvSourceConfig;
 #[cfg(feature = "sqlite")]
 use crate::data::source::SqliteSourceConfig;
-use crate::error::{Error, Result};
 use crate::image::Color;
 use crate::text::FontPath;
-
 use serde::{
     de::{self, Deserializer, Visitor},
     Deserialize,
@@ -77,7 +76,7 @@ pub struct DataSourceConfig {
 }
 
 impl Config {
-    pub fn find(name: Option<&impl AsRef<str>>) -> Result<(PathBuf, Self)> {
+    pub fn find(name: Option<&impl AsRef<str>>) -> Result<(PathBuf, Self), ConfigError> {
         let path = match name {
             Some(name) => {
                 let mut path = Self::config_folder()?;
@@ -90,12 +89,10 @@ impl Config {
         Self::open(&path)
     }
 
-    pub fn open(path: &impl AsRef<Path>) -> Result<(PathBuf, Self)> {
+    pub fn open(path: &impl AsRef<Path>) -> Result<(PathBuf, Self), ConfigError> {
         let path = path.as_ref();
-        let content = fs::read_to_string(path)
-            .map_err(|e| Error::config_open(path, e))?;
-        let raw: Self = toml::from_str(&content)
-            .map_err(|e| Error::config_deser(path, e))?;
+        let content = fs::read_to_string(path).map_err(|e| ConfigError::open(path, e))?;
+        let raw: Self = toml::from_str(&content).map_err(|e| ConfigError::deser(path, e))?;
         let folder = path
             .parent()
             .expect("toml file is inside some folder")
@@ -118,16 +115,16 @@ impl Config {
     }
 
     #[cfg(target_os = "windows")]
-    fn config_folder() -> Result<PathBuf> {
-        let home = std::env::var("APPDATA").map_err(|_| Error::no_env_variable("APPDATA"))?;
+    fn config_folder() -> Result<PathBuf, VarError> {
+        let home = std::env::var("APPDATA").map_err(|e| VarError::new("APPDATA", e))?;
         let mut home = PathBuf::from(home);
         home.push("cartomata");
         Ok(home)
     }
 
     #[cfg(target_os = "linux")]
-    fn config_folder() -> Result<PathBuf> {
-        let home = std::env::var("HOME").map_err(|_| Error::no_env_variable("HOME"))?;
+    fn config_folder() -> Result<PathBuf, VarError> {
+        let home = std::env::var("HOME").map_err(|e| VarError::new("HOME", e))?;
         let mut home = PathBuf::from(home);
         home.push(".cartomata");
         Ok(home)

@@ -1,7 +1,6 @@
 //! Implementation of simple predicates to filter data, with a SQL like syntax.
 use crate::data::{Card, Value};
-use crate::error::{Error, Result};
-
+use crate::error::PredicateParseError;
 use itertools::Itertools;
 use logos::{Lexer, Logos};
 use std::collections::HashSet;
@@ -100,7 +99,7 @@ impl std::ops::Not for Predicate {
 
 impl Predicate {
     /// Parses a string to a predicate.
-    pub fn from_string(predicate: &str) -> Result<Self> {
+    pub fn from_string(predicate: &str) -> Result<Self, PredicateParseError> {
         Parser::new(predicate).parse()
     }
 
@@ -209,7 +208,7 @@ impl Operator {
         }
     }
 
-    fn predicate(self, key: String, val: AnyValue) -> Result<Predicate> {
+    fn predicate(self, key: String, val: AnyValue) -> Result<Predicate, PredicateParseError> {
         match (&self, val) {
             (Self::Eq, AnyValue::Unit(v)) => Ok(Predicate::Eq(key, v)),
             (Self::Neq, AnyValue::Unit(v)) => Ok(Predicate::Neq(key, v)),
@@ -219,8 +218,12 @@ impl Operator {
             (Self::Ge, AnyValue::Unit(v)) => Ok(Predicate::Ge(key, v)),
             (Self::In, AnyValue::Set(v)) => Ok(Predicate::In(key, v)),
             (Self::Like, AnyValue::Unit(v)) => Ok(Predicate::Like(key, v)),
-            (Self::In, AnyValue::Unit(v)) => Err(Error::predicate_operand(self, "a set", v)),
-            (_, AnyValue::Set(v)) => Err(Error::predicate_operand(self, "a single value", v)),
+            (Self::In, AnyValue::Unit(v)) => {
+                Err(PredicateParseError::bad_operand(self, "a set", v))
+            }
+            (_, AnyValue::Set(v)) => {
+                Err(PredicateParseError::bad_operand(self, "a single value", v))
+            }
         }
     }
 }
@@ -336,7 +339,7 @@ macro_rules! action_arm {
         reduce!($self, $ns)
     };
     ($self:ident, $token:ident, error, $err:literal) => {
-        return Err(Error::syntax_error_expecting(
+        return Err(PredicateParseError::syntax_error_expecting(
             $err,
             $self.lex.source(),
             $self.lex.span().start,
@@ -350,20 +353,20 @@ macro_rules! action_arm {
 macro_rules! action_table {
     ($([$s:literal, $($a:tt)*] = $t:tt $ns:tt)*) => {
         #[must_use]
-        fn parse(mut self) -> Result<Predicate> {
+        fn parse(mut self) -> Result<Predicate, PredicateParseError> {
             let mut token = self.next_token()?;
 
             while let Some(state) = self.state_stack.last() {
                 match (state, token.as_ref()) {
                     $(action_pattern!($s, $($a)*) => action_arm!(self, token, $t, $ns),)*
-                    _ => return Err(Error::syntax_error(self.lex.source(), self.lex.span().start)),
+                    _ => return Err(PredicateParseError::syntax_error(self.lex.source(), self.lex.span().start)),
                 }
             }
 
             if let Some(Symbol::Ex(expr)) = self.symbol_stack.pop() {
                 Ok(expr)
             } else {
-                Err(Error::syntax_error(self.lex.source(), self.lex.span().start))
+                Err(PredicateParseError::syntax_error(self.lex.source(), self.lex.span().start))
             }
         }
     };
@@ -460,7 +463,7 @@ macro_rules! synthesize {
 
 macro_rules! reduce_rules {
     ($($i:literal: $Lhs:ident -> [$($rest:tt)*] )*) => {
-        fn reduce(&mut self, i: usize) -> Result<Symbol> {
+        fn reduce(&mut self, i: usize) -> Result<Symbol, PredicateParseError> {
             match i {
                 $($i => {
                     let n = count_args!($($rest) *);
@@ -482,8 +485,11 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn next_token(&mut self) -> Result<Option<Token>> {
-        self.lex.next().transpose().map_err(|_| Error::scan(self.lex.slice()))
+    fn next_token(&mut self) -> Result<Option<Token>, PredicateParseError> {
+        self.lex
+            .next()
+            .transpose()
+            .map_err(|_| PredicateParseError::scan(self.lex.slice()))
     }
 
     fn pop_symbols(&mut self, n: usize) -> Vec<Symbol> {

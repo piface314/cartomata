@@ -16,5 +16,3 @@ pub mod logs;
 pub mod pipeline;
 pub mod template;
 pub mod text;
-
-pub use error::{Error, Result};

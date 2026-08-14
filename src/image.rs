@@ -6,7 +6,7 @@ mod map;
 mod origin;
 mod stroke;
 
-use crate::error::{Error, Result};
+use crate::error::{ImgError, TextError};
 pub use crate::image::blend::BlendMode;
 pub use crate::image::color::Color;
 pub use crate::image::map::ImageMap;
@@ -14,7 +14,6 @@ pub use crate::image::origin::{Origin, TextOrigin};
 pub use crate::image::stroke::Stroke;
 use crate::text::attr::{Gravity, ITagAttr, LayoutAttr};
 use crate::text::{FontMap, Markup};
-
 use cairo::ImageSurface;
 use libvips::{ops, VipsApp, VipsImage};
 use pango::prelude::FontMapExt;
@@ -42,18 +41,20 @@ impl Default for FitMode {
 }
 
 impl ImgBackend {
-    pub fn new() -> Result<Self> {
-        Ok(Self {
-            vips_app: libvips::VipsApp::default("cartomata").map_err(|e| Error::vips(e, None))?,
-        })
+    pub fn new() -> Result<Self, ImgError> {
+        let vips_app = libvips::VipsApp::default("cartomata")
+            .map_err(|source| ImgError::Vips { source, details: None })?;
+        Ok(Self { vips_app })
     }
 
-    fn err(&self, e: libvips::error::Error) -> Error {
-        let extra = self.vips_app.error_buffer().ok();
-        Error::vips(e, extra)
+    fn err(&self, source: libvips::error::Error) -> ImgError {
+        ImgError::Vips {
+            source,
+            details: self.vips_app.error_buffer().ok().map(|s| s.to_string()),
+        }
     }
 
-    fn reinterpret(&self, img: &VipsImage) -> Result<VipsImage> {
+    fn reinterpret(&self, img: &VipsImage) -> Result<VipsImage, ImgError> {
         let img = ops::cast(&img, ops::BandFormat::Uchar).map_err(|e| self.err(e))?;
         let img = ops::copy_with_opts(
             &img,
@@ -74,7 +75,7 @@ impl ImgBackend {
         }
     }
 
-    pub fn create(&self, bg: &Color, width: i32, height: i32) -> Result<VipsImage> {
+    pub fn create(&self, bg: &Color, width: i32, height: i32) -> Result<VipsImage, ImgError> {
         let (r, g, b, a) = bg.scaled_rgba();
         let img = ops::black_with_opts(width, height, &ops::BlackOptions { bands: 4 })
             .map_err(|e| self.err(e))?;
@@ -82,22 +83,22 @@ impl ImgBackend {
         self.reinterpret(&img)
     }
 
-    pub fn cairo_to_vips(&self, img: ImageSurface) -> Result<VipsImage> {
+    pub fn cairo_to_vips(&self, img: ImageSurface) -> Result<VipsImage, ImgError> {
         let mut buffer = Vec::new();
         img.write_to_png(&mut buffer)
-            .map_err(Error::cairo_to_vips)?;
+            .map_err(ImgError::cairo_to_vips)?;
         let mut img = VipsImage::new_from_buffer(&buffer, "").map_err(|e| self.err(e))?;
         img.image_wio_input().map_err(|e| self.err(e))?;
         self.reinterpret(&img)
     }
 
-    pub fn open(&self, fp: impl AsRef<str>) -> Result<VipsImage> {
+    pub fn open(&self, fp: impl AsRef<str>) -> Result<VipsImage, ImgError> {
         let fp = fp.as_ref();
         let img = VipsImage::new_from_file(fp).map_err(|e| self.err(e))?;
         self.reinterpret(&img)
     }
 
-    pub fn set_color(&self, img: &VipsImage, color: Color) -> Result<VipsImage> {
+    pub fn set_color(&self, img: &VipsImage, color: Color) -> Result<VipsImage, ImgError> {
         let (r, g, b) = color.scaled_rgb();
         let rgb = VipsImage::new_from_image(img, &[r, g, b]).map_err(|e| self.err(e))?;
         let current_a = ops::extract_band(img, 3).map_err(|e| self.err(e))?;
@@ -112,7 +113,7 @@ impl ImgBackend {
         self.reinterpret(&img)
     }
 
-    pub fn set_opacity(&self, img: &VipsImage, alpha: f64) -> Result<VipsImage> {
+    pub fn set_opacity(&self, img: &VipsImage, alpha: f64) -> Result<VipsImage, ImgError> {
         let current = ops::extract_band(img, 3).map_err(|e| self.err(e))?;
         let a = VipsImage::new_from_image1(&img, alpha).map_err(|e| self.err(e))?;
         let a = ops::multiply(&current, &a).map_err(|e| self.err(e))?;
@@ -122,19 +123,21 @@ impl ImgBackend {
         self.reinterpret(&img)
     }
 
-    pub fn scale(&self, img: &VipsImage, sx: f64, sy: f64) -> Result<VipsImage> {
+    pub fn scale(&self, img: &VipsImage, sx: f64, sy: f64) -> Result<VipsImage, ImgError> {
         ops::resize_with_opts(
             &img,
             sx,
-            &ops::ResizeOptions {
-                vscale: sy,
-                ..Default::default()
-            },
+            &ops::ResizeOptions { vscale: sy, ..Default::default() },
         )
         .map_err(|e| self.err(e))
     }
 
-    pub fn scale_to(&self, img: &VipsImage, w: Option<i32>, h: Option<i32>) -> Result<VipsImage> {
+    pub fn scale_to(
+        &self,
+        img: &VipsImage,
+        w: Option<i32>,
+        h: Option<i32>,
+    ) -> Result<VipsImage, ImgError> {
         let (iw, ih) = (img.get_width() as f64, img.get_height() as f64);
         let (sx, sy) = match (w, h) {
             (Some(rw), Some(rh)) => (rw as f64 / iw, rh as f64 / ih),
@@ -157,7 +160,7 @@ impl ImgBackend {
         w: f64,
         h: f64,
         mode: FitMode,
-    ) -> Result<VipsImage> {
+    ) -> Result<VipsImage, ImgError> {
         let (iw, ih) = (img.get_width() as f64, img.get_height() as f64);
         let aspect_ratio = iw / ih;
         let (sx, sy) = match mode {
@@ -181,7 +184,7 @@ impl ImgBackend {
         deg: f64,
         ox: Origin,
         oy: Origin,
-    ) -> Result<(VipsImage, f64, f64)> {
+    ) -> Result<(VipsImage, f64, f64), ImgError> {
         let (w, h) = (img.get_width() as f64, img.get_height() as f64);
         let ox = ox.apply(w);
         let oy = oy.apply(h);
@@ -195,7 +198,7 @@ impl ImgBackend {
         Ok((img, dx, dy))
     }
 
-    pub fn stroke(&self, img: &VipsImage, stroke: Stroke) -> Result<VipsImage> {
+    pub fn stroke(&self, img: &VipsImage, stroke: Stroke) -> Result<VipsImage, ImgError> {
         let Stroke { size, color } = stroke;
         let mask = ops::black(size * 2 + 1, size * 2 + 1).map_err(|e| self.err(e))?;
         let mask = ops::add(
@@ -224,10 +227,7 @@ impl ImgBackend {
         let alpha = ops::gaussblur_with_opts(
             &alpha,
             0.5,
-            &ops::GaussblurOptions {
-                min_ampl: 0.2,
-                ..Default::default()
-            },
+            &ops::GaussblurOptions { min_ampl: 0.2, ..Default::default() },
         )
         .map_err(|e| self.err(e))?;
 
@@ -248,7 +248,7 @@ impl ImgBackend {
         ox: Origin,
         oy: Origin,
         mode: BlendMode,
-    ) -> Result<VipsImage> {
+    ) -> Result<VipsImage, ImgError> {
         let (bw, bh) = (base.get_width(), base.get_height());
         let (w, h) = (src.get_width() as f64, src.get_height() as f64);
         let ox = ox.apply(w) as i32;
@@ -266,15 +266,15 @@ impl ImgBackend {
         size: f64,
         color: Color,
         params: &[LayoutAttr],
-    ) -> Result<(VipsImage, pango::Layout)> {
+    ) -> Result<(VipsImage, pango::Layout), ImgError> {
         if fm.get(font).is_none() {
-            return Err(Error::font_missing(font));
+            return Err(TextError::font_missing(font).into());
         }
         let ctx = pangocairo::FontMap::new().create_context();
         let layout = pango::Layout::new(&ctx);
         params.iter().for_each(|p| p.configure(&ctx, &layout));
 
-        let mut opt = cairo::FontOptions::new().map_err(Error::cairo)?;
+        let mut opt = cairo::FontOptions::new()?;
         opt.set_antialias(cairo::Antialias::Good);
         pangocairo::functions::context_set_font_options(&ctx, Some(&opt));
 
@@ -292,9 +292,8 @@ impl ImgBackend {
                 cairo::Format::ARgb32,
                 log_rect.width() / pango::SCALE,
                 log_rect.height() / pango::SCALE,
-            )
-            .map_err(Error::cairo)?;
-            let cr = cairo::Context::new(&base).map_err(Error::cairo)?;
+            )?;
+            let cr = cairo::Context::new(&base)?;
             let (r, g, b, a) = color.rgba();
             cr.set_source_rgba(r, g, b, a);
             pangocairo::functions::show_layout(&cr, &layout);
@@ -322,7 +321,7 @@ impl ImgBackend {
         Ok((base, layout))
     }
 
-    pub fn write(&self, img: &VipsImage, path: impl AsRef<Path>) -> Result<()> {
+    pub fn write(&self, img: &VipsImage, path: impl AsRef<Path>) -> Result<(), ImgError> {
         let path = path.as_ref().to_string_lossy();
         img.image_write_to_file(&path).map_err(|e| self.err(e))
     }

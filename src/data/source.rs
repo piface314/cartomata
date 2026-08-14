@@ -13,7 +13,9 @@ pub use crate::data::source::csv::{CsvSource, CsvSourceConfig};
 pub use crate::data::source::sqlite::{SqliteSource, SqliteSourceConfig};
 use crate::data::Card;
 use crate::data::Predicate;
-use crate::error::Result;
+use std::error::Error;
+
+pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 /// A data source, once created, can return an iterator of cards, optionally
 /// accepting a predicate to filter which cards should be processed.

@@ -1,6 +1,4 @@
-use crate::error::Error;
-
-use std::io::{stderr, Error as IoError, Stderr, Write};
+use std::io::{stderr, Result as IoResult, Stderr, Write};
 use std::sync::mpsc::{self, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -55,11 +53,11 @@ palette! {
 }
 
 impl ProgressBar<Stderr> {
-    pub fn new_stderr(n_workers: usize) -> Result<Self, Error> {
+    pub fn new_stderr(n_workers: usize) -> IoResult<Self> {
         Self::new(n_workers, stderr())
     }
 
-    pub fn spawn_stderr(n_workers: usize) -> (Sender<LogMsg>, JoinHandle<Result<(), Error>>) {
+    pub fn spawn_stderr(n_workers: usize) -> (Sender<LogMsg>, JoinHandle<IoResult<()>>) {
         Self::spawn(n_workers, stderr())
     }
 }
@@ -71,7 +69,7 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
     const FRAME_DURATION: f64 = 0.1;
     const FRAME_COUNT: usize = 256;
 
-    pub fn spawn(n_workers: usize, tty: T) -> (Sender<LogMsg>, JoinHandle<Result<(), Error>>) {
+    pub fn spawn(n_workers: usize, tty: T) -> (Sender<LogMsg>, JoinHandle<IoResult<()>>) {
         let (tx, rx) = mpsc::channel();
         let handle = thread::spawn(move || {
             let mut pbar = Self::new(n_workers, tty)?;
@@ -103,12 +101,12 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
                 }
                 pbar.update()?;
             }
-            pbar.show().map_err(Error::io_error)
+            pbar.show()
         });
         (tx, handle)
     }
 
-    pub fn new(n_workers: usize, tty: T) -> Result<Self, Error> {
+    pub fn new(n_workers: usize, tty: T) -> IoResult<Self> {
         let mut pbar = Self {
             n_workers,
             tty,
@@ -119,9 +117,9 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
             time: Instant::now(),
         };
         for _ in 0..=n_workers {
-            write!(pbar.tty, "\n").map_err(Error::io_error)?;
+            write!(pbar.tty, "\n")?;
         }
-        pbar.show().map_err(Error::io_error)?;
+        pbar.show()?;
         Ok(pbar)
     }
 
@@ -136,14 +134,12 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
         self.counts[0] += 1;
     }
 
-    pub fn info(&mut self, id: usize, msg: String) -> Result<(), Error> {
+    pub fn info(&mut self, id: usize, msg: String) -> IoResult<()> {
         self.log_message(id, "INFO", &msg, INFO_COLOR)
-            .map_err(Error::io_error)
     }
 
-    pub fn warn(&mut self, id: usize, msg: String) -> Result<(), Error> {
+    pub fn warn(&mut self, id: usize, msg: String) -> IoResult<()> {
         self.log_message(id, "WARN", &msg, WARN_COLOR)
-            .map_err(Error::io_error)
     }
 
     pub fn running(&mut self, id: usize, msg: String) {
@@ -164,7 +160,7 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
         label: &'static str,
         msg: &str,
         color: impl termion::color::Color,
-    ) -> Result<(), IoError> {
+    ) -> IoResult<()> {
         let (_w, h) = termion::terminal_size()?;
         let nl = msg.chars().filter(|c| *c == '\n').count() as u16;
         let msg = msg
@@ -192,18 +188,18 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<(), Error> {
+    pub fn update(&mut self) -> IoResult<()> {
         let now = Instant::now();
         let dt = now.duration_since(self.time).as_secs_f64();
         if dt >= Self::FRAME_DURATION {
             self.time = now;
             self.frame = (self.frame + 1) % Self::FRAME_COUNT;
-            self.show().map_err(Error::io_error)?;
+            self.show()?;
         }
         Ok(())
     }
 
-    fn show(&mut self) -> Result<(), IoError> {
+    fn show(&mut self) -> IoResult<()> {
         let (w, h) = termion::terminal_size()?;
         let y = h - self.n_workers as u16 - 1;
         write!(self.tty, "{}", termion::cursor::Goto(1, y))?;
@@ -214,7 +210,7 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
         Ok(())
     }
 
-    fn show_worker(&mut self, w: u16, id: usize) -> Result<(), IoError> {
+    fn show_worker(&mut self, w: u16, id: usize) -> IoResult<()> {
         let (label, color, msg) = match &self.status[id] {
             WorkerStatus::Running(msg) => {
                 let i = (self.frame + id * Self::WORKER_BAR_FACTOR) % Self::WORKER_BAR_WIDTH;
@@ -244,7 +240,7 @@ impl<T: Write + Send + 'static> ProgressBar<T> {
         Ok(())
     }
 
-    fn show_base(&mut self, w: u16) -> Result<(), IoError> {
+    fn show_base(&mut self, w: u16) -> IoResult<()> {
         let n = self.counts[0];
         let total = self.total;
         let (label, color, msg) = match &self.status[0] {

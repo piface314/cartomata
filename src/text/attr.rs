@@ -1,6 +1,6 @@
 //! Text attribute values and conversions.
 
-use crate::error::{Error, Result};
+use crate::error::TextError;
 use crate::image::{Color, ImageMap, ImgBackend, Origin};
 use crate::text::FontMap;
 
@@ -19,11 +19,7 @@ pub struct ITagAttr {
 
 impl ITagAttr {
     pub fn new(value: TagAttr) -> Self {
-        Self {
-            value,
-            start_index: 0,
-            end_index: 0,
-        }
+        Self { value, start_index: 0, end_index: 0 }
     }
 
     pub fn vec_to_pango(
@@ -32,7 +28,7 @@ impl ITagAttr {
         im: &ImageMap,
         fm: &FontMap,
         ctx: &pango::Context,
-    ) -> Result<(pango::AttrList, Vec<Option<VipsImage>>)> {
+    ) -> Result<(pango::AttrList, Vec<Option<VipsImage>>), TextError> {
         let mut attr_list = pango::AttrList::new();
         let mut images = Vec::new();
         for attr in attrs.into_iter() {
@@ -49,7 +45,7 @@ impl ITagAttr {
         ctx: &pango::Context,
         attr_list: &mut pango::AttrList,
         images: &mut Vec<Option<VipsImage>>,
-    ) -> Result<()> {
+    ) -> Result<(), TextError> {
         match self.value {
             TagAttr::Span(a) => a.to_pango(fm, attr_list, self.start_index, self.end_index)?,
             TagAttr::Img(a) => {
@@ -71,9 +67,9 @@ macro_rules! attr_parse {
     ($tag:literal, $key:expr; $val:expr; $($pat:expr, $att:ident, $T:ty);*) => {{
         match $key {
             $($pat => Ok(Self::$att($val.parse::<$T>().map_err(|e|
-                Error::text_invalid_attr_val($tag, $pat, $val, e.to_string())
+                TextError::invalid_attr_val($tag, $pat, $val, e.to_string())
             )?)), ) *
-            _ => Err(Error::text_invalid_attr($tag, $key)),
+            _ => Err(TextError::invalid_attr($tag, $key)),
         }
     }};
 }
@@ -91,7 +87,7 @@ macro_rules! enum_attr {
         }
 
         impl $Attr {
-            pub fn from_key_value(key: &str, value: &str) -> Result<Self> {
+            pub fn from_key_value(key: &str, value: &str) -> Result<Self, TextError> {
                 attr_parse!($tag, key; value; $( $k, $Variant, $T );*)
             }
         }
@@ -113,11 +109,11 @@ macro_rules! struct_attr {
         }
 
         impl $Attr {
-            pub fn push(&mut self, key: &str, value: &str) -> Result<()> {
+            pub fn push(&mut self, key: &str, value: &str) -> Result<(), TextError> {
                 match key {
                     $($k => {
                         let parsed = value.parse::<$T>().map_err(|e|
-                            Error::text_invalid_attr_val(
+                            TextError::invalid_attr_val(
                                 if self.inherit { "icon" } else { "img" },
                                 $k,
                                 key,
@@ -127,7 +123,7 @@ macro_rules! struct_attr {
                         self.$Field = Some(parsed);
                         Ok(())
                     } ) *
-                    _ => Err(Error::text_invalid_attr(if self.inherit { "icon" } else { "img" }, key)),
+                    _ => Err(TextError::invalid_attr(if self.inherit { "icon" } else { "img" }, key)),
                 }
             }
         }
@@ -178,7 +174,7 @@ macro_rules! indexed {
 
 macro_rules! push {
     (AttrFontDesc ($fm:ident($font:ident)) >> $attrs:ident at $i:ident, $j:ident) => {{
-        let desc = $fm.get_desc(&$font).ok_or_else(|| Error::font_missing($font))?;
+        let desc = $fm.get_desc(&$font).ok_or_else(|| TextError::font_missing($font))?;
         $attrs.insert(indexed!(pango::AttrFontDesc::new(&desc); at $i, $j));
     }};
     ($Attr:ident ($val:expr) >> $attrs:ident at $i:ident, $j:ident) => {{
@@ -213,7 +209,13 @@ macro_rules! push {
 }
 
 impl SpanAttr {
-    pub fn to_pango(self, fm: &FontMap, attrs: &mut pango::AttrList, i: u32, j: u32) -> Result<()> {
+    pub fn to_pango(
+        self,
+        fm: &FontMap,
+        attrs: &mut pango::AttrList,
+        i: u32,
+        j: u32,
+    ) -> Result<(), TextError> {
         match self {
             Self::Font(x) => push!(AttrFontDesc (fm(x)) >> attrs at i, j),
             Self::Features(x) => push!(AttrFontFeatures (&x) >> attrs at i, j),
@@ -294,10 +296,7 @@ impl ImgAttr {
     }
 
     pub fn new_inherit() -> Self {
-        Self {
-            inherit: true,
-            ..Self::default()
-        }
+        Self { inherit: true, ..Self::default() }
     }
 
     #[must_use]

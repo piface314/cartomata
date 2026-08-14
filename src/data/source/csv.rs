@@ -1,8 +1,8 @@
 //! Implementation for CSV as card data source.
 
+use crate::data::source::Result as SrcResult;
 use crate::data::{Card, DataSource, Predicate};
-use crate::error::{Error, Result};
-
+use csv::Error as CsvError;
 use itertools::Itertools;
 use serde::Deserialize;
 use std::path::Path;
@@ -64,13 +64,12 @@ pub struct CsvSource {
 
 impl CsvSource {
     /// Opens a CSV file according to the configurations, to be used a card data source.
-    pub fn open(config: CsvSourceConfig, path: &impl AsRef<Path>) -> Result<CsvSource> {
+    pub fn open(config: CsvSourceConfig, path: &impl AsRef<Path>) -> Result<CsvSource, CsvError> {
         let path = path.as_ref();
         let reader = csv::ReaderBuilder::new()
             .delimiter(config.delimiter as u8)
             .has_headers(config.header)
-            .from_path(path)
-            .map_err(|e| Error::source_open(path, e))?;
+            .from_path(path)?;
         Ok(Self { reader })
     }
 }
@@ -79,11 +78,11 @@ impl<C: Card> DataSource<C> for CsvSource {
     fn read(
         &mut self,
         filter: Option<Predicate>,
-    ) -> Result<Box<dyn Iterator<Item = Result<C>> + '_>> {
+    ) -> SrcResult<Box<dyn Iterator<Item = SrcResult<C>> + '_>> {
         let iterator = self
             .reader
             .deserialize::<C>()
-            .map(|r| r.map_err(Error::record_read));
+            .map(|r| r.map_err(|e| e.into()));
 
         match filter {
             Some(filter) => Ok(Box::new(iterator.filter_ok(move |card| filter.eval(card)))),

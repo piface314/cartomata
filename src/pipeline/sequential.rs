@@ -1,6 +1,6 @@
 use crate::data::{Card, Predicate};
 use crate::decode::Decoder;
-use crate::error::Result;
+use crate::error::RuntimeError;
 use crate::image::ImgBackend;
 use crate::layer::RenderContext;
 use crate::pipeline::{Pipeline, Visitor};
@@ -25,16 +25,21 @@ where
         visitor: &V,
         source_key: T::SourceKey,
         filter: Option<Predicate>,
-    ) -> Result<()> {
+    ) -> Result<(), RuntimeError> {
         visitor.on_start(&template, 0);
-        let mut source = template.source(source_key)?;
-        let decoder = template.decoder()?;
+        let mut source = template
+            .source(source_key)
+            .map_err(RuntimeError::cant_open_source)?;
+        let decoder = template
+            .decoder()
+            .map_err(RuntimeError::cant_init_decoder)?;
         let font_map = template.fonts();
         let img_map = template.resources();
         let backend = ImgBackend::new()?;
         let ctx = RenderContext { backend: &backend, font_map, img_map };
         source
-            .read(filter)?
+            .read(filter)
+            .map_err(RuntimeError::cant_read)?
             .filter(|card_res| visitor.on_read(template, card_res))
             .enumerate()
             .filter_map(|(i, card_res)| match card_res {
@@ -54,10 +59,17 @@ where
         Ok(())
     }
 
-    fn process(template: &T, decoder: &T::Decoder, card: &C, ctx: &RenderContext) -> Result<()> {
-        let layers = decoder.decode(card)?;
+    fn process(
+        template: &T,
+        decoder: &T::Decoder,
+        card: &C,
+        ctx: &RenderContext,
+    ) -> Result<(), RuntimeError> {
+        let layers = decoder.decode(card).map_err(RuntimeError::cant_decode)?;
         let img = layers.render(ctx)?;
-        template.output(card, &img, &ctx.backend)?;
+        template
+            .output(card, &img, &ctx.backend)
+            .map_err(RuntimeError::cant_write)?;
         Ok(())
     }
 }

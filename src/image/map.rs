@@ -1,4 +1,3 @@
-use crate::error::{Error, Result};
 use crate::image::color::Color;
 
 use std::path::{Path, PathBuf};
@@ -20,7 +19,7 @@ impl ImageMap {
         fp
     }
 
-    pub fn artwork_path(&self, key: impl AsRef<str>) -> Result<PathBuf> {
+    pub fn artwork_path(&self, key: impl AsRef<str>) -> Option<PathBuf> {
         let key = key.as_ref();
         let mut path = self.artwork_folder.clone();
         path.push(key);
@@ -32,9 +31,9 @@ impl ImageMap {
             })
             .next();
         match (found_path, &self.placeholder) {
-            (Some(path), _) => Ok(path),
-            (None, Some(placeholder)) => Ok(placeholder.clone()),
-            (None, None) => Err(Error::no_artwork(key)),
+            (Some(path), _) => Some(path),
+            (_, Some(placeholder)) => Some(placeholder.clone()),
+            _ => None,
         }
     }
 
