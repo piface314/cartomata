@@ -48,7 +48,7 @@ yeslogic-fontconfig = "0.1.1"
 yeslogic-fontconfig-sys = { version = "^2.11.1" }
 
 [features]
-default = ["cli", "csv", "diff", "sqlite"]
+default = []
 derive = ["dep:cartomata_derive"]
 cli = ["derive", "dep:clap", "dep:mlua", "dep:toml"]
 csv = ["dep:csv"]

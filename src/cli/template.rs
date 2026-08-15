@@ -34,10 +34,10 @@ impl DynTemplate {
         let mut source_map = SourceMap::new();
 
         #[cfg(feature = "csv")]
-        source_map.with_csv(config.source.csv);
+        source_map.set_csv(config.source.csv);
 
         #[cfg(feature = "sqlite")]
-        source_map.with_sqlite(config.source.sqlite);
+        source_map.set_sqlite(config.source.sqlite);
 
         let decoder_factory = LuaDecoderFactory::new(folder)?;
 
@@ -141,12 +141,12 @@ impl SourceMap {
     }
 
     #[cfg(feature = "csv")]
-    pub fn with_csv(&mut self, cfg: Option<CsvSourceConfig>) {
+    pub fn set_csv(&mut self, cfg: Option<CsvSourceConfig>) {
         self.csv = cfg;
     }
 
     #[cfg(feature = "sqlite")]
-    pub fn with_sqlite(&mut self, cfg: Option<SqliteSourceConfig>) {
+    pub fn set_sqlite(&mut self, cfg: Option<SqliteSourceConfig>) {
         self.sqlite = cfg;
     }
 

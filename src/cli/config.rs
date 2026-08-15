@@ -71,8 +71,10 @@ pub struct ArtworkConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct DataSourceConfig {
-    pub sqlite: Option<SqliteSourceConfig>,
+    #[cfg(feature = "csv")]
     pub csv: Option<CsvSourceConfig>,
+    #[cfg(feature = "sqlite")]
+    pub sqlite: Option<SqliteSourceConfig>,
 }
 
 impl Config {
