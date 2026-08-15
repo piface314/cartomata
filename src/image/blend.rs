@@ -1,7 +1,6 @@
 //! Image blend modes.
 
 use libvips::ops;
-#[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
 
 macro_rules! into_vips {
@@ -27,9 +26,8 @@ macro_rules! into_vips {
 }
 
 into_vips! {
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     pub enum BlendMode {
         Clear,
         Source,

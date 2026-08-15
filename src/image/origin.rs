@@ -1,7 +1,5 @@
 //! Origin position parameter.
 
-
-#[cfg(feature = "cli")]
 use serde::{de, Deserialize};
 
 #[derive(Debug, Copy, Clone)]
@@ -72,10 +70,8 @@ macro_rules! visit_float {
     };
 }
 
-#[cfg(feature = "cli")]
 struct OriginVisitor;
 
-#[cfg(feature = "cli")]
 impl<'de> de::Visitor<'de> for OriginVisitor {
     type Value = Origin;
 
@@ -100,10 +96,8 @@ impl<'de> Deserialize<'de> for Origin {
     }
 }
 
-#[cfg(feature = "cli")]
 struct TextOriginVisitor;
 
-#[cfg(feature = "cli")]
 impl<'de> de::Visitor<'de> for TextOriginVisitor {
     type Value = TextOrigin;
 
