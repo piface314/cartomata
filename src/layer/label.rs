@@ -29,7 +29,7 @@ pub struct LabelLayer {
     pub w: Option<i32>,
     #[cfg_attr(feature = "cli", serde(default))]
     pub r: f64,
-    #[serde(default)]
+    #[cfg_attr(feature = "cli", serde(default))]
     pub ox: Origin,
     #[cfg_attr(feature = "cli", serde(default = "default_text_origin"))]
     pub oy: TextOrigin,
