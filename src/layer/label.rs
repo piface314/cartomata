@@ -24,16 +24,16 @@ pub struct LabelLayer {
     pub y: i32,
     pub size: f64,
     pub font: Option<String>,
-    #[serde(default = "default_color")]
+    #[cfg_attr(feature = "cli", serde(default = "default_color"))]
     pub color: Color,
     pub w: Option<i32>,
-    #[serde(default)]
+    #[cfg_attr(feature = "cli", serde(default))]
     pub r: f64,
     #[serde(default)]
     pub ox: Origin,
-    #[serde(default = "default_text_origin")]
+    #[cfg_attr(feature = "cli", serde(default = "default_text_origin"))]
     pub oy: TextOrigin,
-    #[serde(default)]
+    #[cfg_attr(feature = "cli", serde(default))]
     pub blend: BlendMode,
     pub stroke: Option<Stroke>,
     pub auto_dir: Option<bool>,
