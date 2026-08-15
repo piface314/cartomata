@@ -114,11 +114,11 @@ impl Predicate {
             Self::In(k, ValueSet::Int(vs)) => match &card.get(k) {
                 Value::Int(x) => vs.contains(x),
                 Value::Float(x) => x.fract() == 0.0 && vs.contains(&(*x as i64)),
-                Value::Str(x) => x.parse::<i64>().map(|x| vs.contains(&x)).unwrap_or(false),
+                Value::String(x) => x.parse::<i64>().map(|x| vs.contains(&x)).unwrap_or(false),
                 _ => false,
             },
             Self::In(k, ValueSet::Str(vs)) => match &card.get(k) {
-                Value::Str(x) => vs.contains(x),
+                Value::String(x) => vs.contains(x),
                 _ => false,
             },
             Self::Like(k, v) => card.get(k).to_string().contains(&v.to_string()),
@@ -655,7 +655,7 @@ impl<'src> Parser<'src> {
         13: Ss -> [ Ss(mut s) :ValStr(v) :Comma {{ s.insert(v); s }} ]
         14: Ss -> [ { HashSet::new() } ]
         15: V  -> [ :ValInt(v) { AnyValue::Unit(Value::Int(v)) } ]
-        16: V  -> [ :ValStr(v) { AnyValue::Unit(Value::Str(v)) } ]
+        16: V  -> [ :ValStr(v) { AnyValue::Unit(Value::String(v)) } ]
         17: V  -> [ :ValFloat(v) { AnyValue::Unit(Value::Float(v)) } ]
         18: V  -> [ :ValBool(v) { AnyValue::Unit(Value::Bool(v)) } ]
         19: V  -> [ :ValNil { AnyValue::Unit(Value::Nil) } ]

@@ -129,8 +129,8 @@ impl Value {
             Value::Bool(v) => ToSqlOutput::Owned(SqlValue::Integer(*v as i64)),
             Value::Int(v) => ToSqlOutput::Owned(SqlValue::Integer(*v)),
             Value::Float(v) => ToSqlOutput::Owned(SqlValue::Real(*v)),
-            Value::Str(v) => ToSqlOutput::Borrowed(SqlValueRef::Text(v.as_bytes())),
-            Value::Nil => ToSqlOutput::Owned(SqlValue::Null),
+            Value::String(v) => ToSqlOutput::Borrowed(SqlValueRef::Text(v.as_bytes())),
+            _ => ToSqlOutput::Owned(SqlValue::Null),
         }
     }
 }

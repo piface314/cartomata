@@ -11,15 +11,35 @@ use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::fmt;
 
-impl<'lua> IntoLua<'lua> for Value {
+impl<'lua> IntoLua<'lua> for &Value {
     fn into_lua(self, lua: &'lua Lua) -> LuaResult<LuaValue<'lua>> {
         match self {
-            Value::Bool(v) => Ok(LuaValue::Boolean(v)),
-            Value::Int(v) => Ok(LuaValue::Integer(v)),
-            Value::Float(v) => Ok(LuaValue::Number(v)),
-            Value::Str(v) => lua.create_string(v.as_bytes()).map(LuaValue::String),
+            Value::Bool(v) => v.into_lua(lua),
+            Value::Int(v) => v.into_lua(lua),
+            Value::Float(v) => v.into_lua(lua),
+            Value::String(v) => v.as_str().into_lua(lua),
+            Value::Seq(seq) => {
+                let table = lua.create_table()?;
+                for (index, elem) in seq.iter().enumerate() {
+                    table.set(index + 1, elem)?;
+                }
+                Ok(LuaValue::Table(table))
+            }
+            Value::Map(map) => {
+                let table = lua.create_table()?;
+                for (key, elem) in map.iter() {
+                    table.set(key.as_str(), elem)?;
+                }
+                Ok(LuaValue::Table(table))
+            }
             Value::Nil => Ok(LuaValue::Nil),
         }
+    }
+}
+
+impl<'lua> IntoLua<'lua> for Value {
+    fn into_lua(self, lua: &'lua Lua) -> LuaResult<LuaValue<'lua>> {
+        (&self).into_lua(lua)
     }
 }
 
