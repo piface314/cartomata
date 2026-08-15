@@ -55,8 +55,7 @@ into_vips! {
         HardLight,
         SoftLight,
         Difference,
-        Exclusion,
-        Last
+        Exclusion
     }
 }
 

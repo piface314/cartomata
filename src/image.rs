@@ -235,7 +235,7 @@ impl ImgBackend {
         let stroke = VipsImage::new_from_image(&alpha, &[r, g, b]).map_err(|e| self.err(e))?;
         let stroke = ops::bandjoin(&mut [stroke, alpha]).map_err(|e| self.err(e))?;
         let stroke = self.reinterpret(&stroke)?;
-        let img = ops::composite_2(&stroke, &img, ops::BlendMode::Over).map_err(|e| self.err(e))?;
+        let img = ops::composite2(&stroke, &img, ops::BlendMode::Over).map_err(|e| self.err(e))?;
         Ok(img)
     }
 
@@ -254,7 +254,7 @@ impl ImgBackend {
         let ox = ox.apply(w) as i32;
         let oy = oy.apply(h) as i32;
         let src = ops::embed(&src, x - ox, y - oy, bw, bh).map_err(|e| self.err(e))?;
-        ops::composite_2(&base, &src, mode.into()).map_err(|e| self.err(e))
+        ops::composite2(&base, &src, mode.into()).map_err(|e| self.err(e))
     }
 
     pub fn print(
