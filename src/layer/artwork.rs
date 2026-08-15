@@ -9,9 +9,11 @@ use cartomata_derive::LuaLayer;
 use libvips::VipsImage;
 #[cfg(feature = "cli")]
 use mlua::LuaSerdeExt;
+#[cfg(feature = "cli")]
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "cli", derive(Deserialize))]
 #[cfg_attr(feature = "cli", derive(LuaLayer))]
 pub struct ArtworkLayer {
     pub id: String,

@@ -15,8 +15,9 @@ use mlua::LuaSerdeExt;
 #[cfg(feature = "cli")]
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "cli", derive(LuaLayer))]
+#[cfg_attr(feature = "cli", derive(Deserialize))]
 pub struct TextLayer {
     pub text: String,
     pub x: i32,
