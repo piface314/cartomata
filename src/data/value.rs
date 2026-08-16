@@ -62,6 +62,12 @@ impl<T: Into<Value>> From<HashMap<String, T>> for Value {
     }
 }
 
+impl<T: Into<Value>> From<Option<T>> for Value {
+    fn from(value: Option<T>) -> Self {
+        value.map(|v| v.into()).unwrap_or_default()
+    }
+}
+
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
