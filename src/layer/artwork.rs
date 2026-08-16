@@ -34,6 +34,7 @@ pub struct ArtworkLayer {
     pub stroke: Option<Stroke>,
 }
 
+#[cfg(feature = "cli")]
 fn default_origin() -> Origin {
     Origin::Relative(0.5)
 }

@@ -44,10 +44,12 @@ pub struct LabelLayer {
     pub language: Option<String>,
 }
 
+#[cfg(feature = "cli")]
 const fn default_color() -> Color {
     Color::BLACK
 }
 
+#[cfg(feature = "cli")]
 const fn default_text_origin() -> TextOrigin {
     TextOrigin::Baseline
 }

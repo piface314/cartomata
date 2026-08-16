@@ -50,6 +50,7 @@ pub struct TextLayer {
     pub wrap: Option<WrapMode>,
 }
 
+#[cfg(feature = "cli")]
 const fn default_color() -> Color {
     Color::BLACK
 }

@@ -7,10 +7,13 @@
 /// 
 /// Provides the same semantics as a Box, but prevents the optimizer from assuming that moving it
 /// invalidates references to its contents
+
+#[allow(unused)]
 pub struct AliasBox<T> {
     ptr: *const T,
 }
 
+#[allow(unused)]
 impl<T> AliasBox<T> {
     /// Allocates memory on the heap and then places `x` into it.
     pub fn new(x: T) -> Self {
