@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{spanned::Spanned, Data, DataStruct, DeriveInput, Fields};
+use syn::{ext::IdentExt, spanned::Spanned, Data, DataStruct, DeriveInput, Fields};
 
 pub fn derive_card(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let get_method = derive_card_get_value(ast)?;
@@ -15,10 +15,7 @@ pub fn derive_card(ast: &DeriveInput) -> syn::Result<TokenStream> {
 
 pub fn derive_card_get_value(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let idents = match &ast.data {
-        Data::Struct(DataStruct {
-            fields: Fields::Named(fields),
-            ..
-        }) => Ok(fields
+        Data::Struct(DataStruct { fields: Fields::Named(fields), .. }) => Ok(fields
             .named
             .iter()
             .map(|field| field.ident.as_ref().unwrap())),
@@ -27,7 +24,10 @@ pub fn derive_card_get_value(ast: &DeriveInput) -> syn::Result<TokenStream> {
             "expected struct with named fields",
         )),
     }?;
-    let arms = idents.map(|ident| quote!( stringify!(#ident) => self.#ident.clone().into(), ));
+    let arms = idents.map(|ident| {
+        let unraw_ident = ident.unraw();
+        quote!( stringify!(#unraw_ident) => self.#ident.clone().into(), )
+    });
     let gen = quote! {
         fn get(&self, field: &str) -> ::cartomata::data::Value {
             match field {
