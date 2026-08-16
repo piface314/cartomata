@@ -54,3 +54,7 @@ cli = ["derive", "dep:clap", "dep:mlua", "dep:toml"]
 csv = ["dep:csv"]
 sqlite = ["dep:rusqlite", "dep:serde_rusqlite"]
 diff = ["dep:md-5"]
+
+[[bin]]
+name = "cartomata"
+required-features = ["cli", "diff", "csv", "sqlite"]

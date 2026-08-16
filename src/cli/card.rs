@@ -3,7 +3,9 @@
 use crate::data::{Card, Value};
 #[cfg(feature = "diff")]
 use crate::diff::DiffHash;
+#[cfg(feature = "diff")]
 use itertools::Itertools;
+#[cfg(feature = "diff")]
 use md5::digest::Update;
 use mlua::{IntoLua, Lua, Result as LuaResult, Value as LuaValue};
 use serde::de::{self, Visitor};

@@ -14,6 +14,7 @@ use crate::cli::template::{DynTemplate, SourceType};
 use crate::data::Predicate;
 use crate::error::RuntimeError;
 use crate::logs;
+#[cfg(feature = "diff")]
 use crate::pipeline::Chain;
 use crate::pipeline::Visitor;
 use crate::pipeline::{LogVisitor, ParallelismOptions, Pipeline};
@@ -130,7 +131,7 @@ impl Cli {
     #[cfg(not(feature = "diff"))]
     fn create_visitor(
         _source_key: &(Option<SourceType>, PathBuf),
-        _output: &PathBuf,
+        _output: &Option<PathBuf>,
         n_workers: usize,
     ) -> std::io::Result<(
         impl Visitor<DynCard, DynTemplate> + Clone,
