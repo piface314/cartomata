@@ -5,13 +5,13 @@ use crate::data::predicate::ValueSet;
 use crate::data::source::Result as SrcResult;
 use crate::data::{Card, DataSource, Predicate, PredicatePath, PredicatePathPart, Value};
 use itertools::Itertools;
-use thiserror::Error;
 use rusqlite::types::{ToSqlOutput, Value as SqlValue, ValueRef as SqlValueRef};
 use rusqlite::{params_from_iter, Connection, Error as SqliteError, Statement};
 use serde::Deserialize;
 use serde_rusqlite::{from_rows, DeserRows};
 use std::fmt::Write;
 use std::path::Path;
+use thiserror::Error;
 
 /// Configurations for reading a SQLite file.
 #[derive(Debug, Clone, Deserialize)]
@@ -161,6 +161,8 @@ pub enum SqlitePredicateError {
     Fmt(#[source] std::fmt::Error),
     #[error("only simple column names are allowed in predicates for SQLite, but got {0}")]
     ColOnly(String),
+    #[error("SQLite does not support {0} operator")]
+    UnsupportedOperator(&'static str),
 }
 
 impl From<std::fmt::Error> for SqlitePredicateError {
@@ -178,7 +180,11 @@ impl Predicate {
         Ok((buf, vars))
     }
 
-    fn sql_r<'a>(&'a self, buf: &mut String, vars: &mut Vec<ToSqlOutput<'a>>) -> Result<(), SqlitePredicateError> {
+    fn sql_r<'a>(
+        &'a self,
+        buf: &mut String,
+        vars: &mut Vec<ToSqlOutput<'a>>,
+    ) -> Result<(), SqlitePredicateError> {
         match self {
             Self::And(a, b) => {
                 seq_write!(buf; "("; a.sql_r(buf, vars); " AND "; b.sql_r(buf, vars); ")")
@@ -229,6 +235,9 @@ impl Predicate {
             Self::Ge(col, v) => {
                 write!(buf, "{} >= ?", esc_col(col)?)?;
                 vars.push(value_to_sql(v));
+            }
+            Self::Contains(_, _) => {
+                return Err(SqlitePredicateError::UnsupportedOperator("CONTAINS"))
             }
         };
         Ok(())

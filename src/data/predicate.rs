@@ -14,16 +14,16 @@ use std::fmt::Display;
 ///
 /// # Example
 /// ```
-/// use cartomata::data::{Predicate, Value};
+/// use cartomata::data::{Predicate, Value, PredicatePath, PredicatePathPart};
 ///
 /// let p = Predicate::from_string("power >= 100 AND name LIKE 'sample'").unwrap();
 /// assert_eq!(
 ///     p,
-///     Predicate::Ge("power".to_string(), Value::Int(100))
-///         & Predicate::Like("name".to_string(), Value::Str("sample".to_string()))
+///     Predicate::Ge(PredicatePath(vec![PredicatePathPart::Key("power".into())]), Value::Number(100.into()))
+///         & Predicate::Like(PredicatePath(vec![PredicatePathPart::Key("name".into())]), Value::String("sample".into()))
 /// );
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Predicate {
     And(Box<Predicate>, Box<Predicate>),
     Or(Box<Predicate>, Box<Predicate>),
@@ -32,6 +32,7 @@ pub enum Predicate {
     Neq(PredicatePath, Value),
     In(PredicatePath, ValueSet),
     Like(PredicatePath, Value),
+    Contains(PredicatePath, Value),
     Lt(PredicatePath, Value),
     Le(PredicatePath, Value),
     Gt(PredicatePath, Value),
@@ -136,6 +137,25 @@ impl Predicate {
             Self::Le(k, v) => card.get(k) <= ValueRef::from(v),
             Self::Gt(k, v) => card.get(k) > ValueRef::from(v),
             Self::Ge(k, v) => card.get(k) >= ValueRef::from(v),
+            Self::Contains(k, v) => match card.get(k) {
+                ValueRef::Array(a) => a.contains(&ValueRef::from(v)),
+                ValueRef::ArrayRef(a) => a.contains(&v),
+                ValueRef::Object(o) => {
+                    if let Value::String(v) = v {
+                        o.contains_key(v.as_str())
+                    } else {
+                        false
+                    }
+                }
+                ValueRef::ObjectRef(o) => {
+                    if let Value::String(v) = v {
+                        o.contains_key(v)
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            },
         }
     }
 }
@@ -161,7 +181,7 @@ enum PredicateTerm {
     #[regex("[a-z][a-z0-9-]*|`([^`]|``)*`", unescape_ident, ignore(case))]
     Key(String),
     #[gerana(desc = "an operator")]
-    #[regex("=|!=|>|>=|<|<=|IN|LIKE", Operator::new, priority = 3, ignore(case))]
+    #[regex("=|!=|>|>=|<|<=|IN|LIKE|CONTAINS", Operator::new, priority = 3, ignore(case))]
     Op(Operator),
     #[gerana(desc = "a string value")]
     #[regex("'([^']|'')*'", unescape_str)]
@@ -201,7 +221,7 @@ impl std::fmt::Display for PredicateTerm {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PredicatePath(pub Vec<PredicatePathPart>);
 
 impl std::fmt::Display for PredicatePath {
@@ -214,7 +234,7 @@ impl std::fmt::Display for PredicatePath {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PredicatePathPart {
     Key(String),
     Index(i64),
@@ -248,7 +268,7 @@ impl From<i64> for PredicatePathPart {
 }
 
 /// A trait for dynamic access of data structure fields.
-/// 
+///
 /// This trait is used primarily by predicate evaluation, but can also be used by other parts of
 /// the pipeline execution to work with arbitrary [Card] types.
 pub trait Access {
@@ -343,6 +363,7 @@ enum Operator {
     Ge,
     In,
     Like,
+    Contains,
 }
 
 impl Operator {
@@ -356,6 +377,7 @@ impl Operator {
             ">=" => Self::Ge,
             "IN" => Self::In,
             "LIKE" => Self::Like,
+            "CONTAINS" => Self::Contains,
             _ => unreachable!("invalid operator"),
         }
     }
@@ -371,6 +393,7 @@ impl Operator {
             (Self::In, AnyValue::Set(v)) => Ok(Predicate::In(key, v)),
             (Self::Like, AnyValue::Unit(v)) => Ok(Predicate::Like(key, v)),
             (Self::In, AnyValue::Unit(v)) => Err(PredicateError::bad_operand(self, "a set", v)),
+            (Self::Contains, AnyValue::Unit(v)) => Ok(Predicate::Contains(key, v)),
             (_, AnyValue::Set(v)) => Err(PredicateError::bad_operand(self, "a single value", v)),
         }
     }
@@ -387,6 +410,7 @@ impl std::fmt::Display for Operator {
             Self::Ge => write!(f, ">="),
             Self::In => write!(f, "IN"),
             Self::Like => write!(f, "LIKE"),
+            Self::Contains => write!(f, "CONTAINS"),
         }
     }
 }
