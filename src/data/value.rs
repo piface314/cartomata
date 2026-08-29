@@ -1,223 +1,146 @@
-use itertools::Itertools;
-use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer};
+pub use serde_json::{Map, Number, Value};
 use std::collections::HashMap;
-use std::fmt;
 
-/// Represents the possible values a card field can take.
-#[derive(Debug, Clone)]
-pub enum Value {
-    Int(i64),
-    Float(f64),
-    String(String),
+#[derive(Clone, Eq, PartialEq, Default)]
+pub enum ValueRef<'v> {
+    #[default]
+    Null,
     Bool(bool),
-    Seq(Vec<Value>),
-    Map(HashMap<String, Value>),
-    Nil,
+    Number(Number),
+    String(&'v str),
+    ArrayRef(&'v Vec<Value>),
+    Array(Vec<ValueRef<'v>>),
+    ObjectRef(&'v Map<String, Value>),
+    Object(HashMap<&'v str, ValueRef<'v>>),
 }
 
-impl Default for Value {
-    fn default() -> Self {
-        Self::Nil
+impl<'v> From<&'v Value> for ValueRef<'v> {
+    fn from(value: &'v Value) -> Self {
+        match value {
+            Value::Null => Self::Null,
+            Value::Bool(v) => Self::Bool(*v),
+            Value::Number(v) => Self::Number(v.clone()),
+            Value::String(v) => Self::String(v.as_str()),
+            Value::Array(v) => Self::ArrayRef(v),
+            Value::Object(v) => Self::ObjectRef(v),
+        }
     }
 }
 
-macro_rules! value_from {
-    ($($V:ty)+ => $Variant:ident($T:ty)) => {
+macro_rules! value_int_from {
+    ($($V:ty)+) => {
         $(
-            impl From<$V> for Value {
+            impl<'v> From<$V> for ValueRef<'v> {
                 fn from(value: $V) -> Self {
-                    Self::$Variant(value as $T)
+                    Self::from(Number::from(value))
+                }
+            }
+
+            impl<'v> From<&$V> for ValueRef<'v> {
+                fn from(value: &$V) -> Self {
+                    Self::from(Number::from(*value))
                 }
             }
         )*
     };
 }
 
-value_from!(i64 i32 i16 i8 u64 u32 u16 u8 => Int(i64));
-value_from!(f64 f32 => Float(f64));
-value_from!(bool => Bool(bool));
+value_int_from!(i64 i32 i16 i8 u64 u32 u16 u8);
 
-impl From<&str> for Value {
-    fn from(value: &str) -> Self {
-        Value::String(value.to_string())
+macro_rules! value_float_from {
+    ($($V:ty)+) => {
+        $(
+            impl<'v> From<$V> for ValueRef<'v> {
+                fn from(value: $V) -> Self {
+                    Number::from_f64(value as f64).map(|x| Self::from(x)).unwrap_or_default()
+                }
+            }
+
+            impl<'v> From<&$V> for ValueRef<'v> {
+                fn from(value: &$V) -> Self {
+                    Number::from_f64(*value as f64).map(|x| Self::from(x)).unwrap_or_default()
+                }
+            }
+        )*
+    };
+}
+
+value_float_from!(f64 f32);
+
+impl<'v> From<bool> for ValueRef<'v> {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
     }
 }
 
-impl From<String> for Value {
-    fn from(value: String) -> Self {
-        Value::String(value)
+
+impl<'v> From<&bool> for ValueRef<'v> {
+    fn from(value: &bool) -> Self {
+        Self::Bool(*value)
     }
 }
 
-impl<T: Into<Value>> From<Vec<T>> for Value {
-    fn from(value: Vec<T>) -> Self {
-        Value::Seq(value.into_iter().map(|v| v.into()).collect())
+
+impl<'v> From<Number> for ValueRef<'v> {
+    fn from(value: Number) -> Self {
+        Self::Number(value.clone())
     }
 }
 
-impl<T: Into<Value>> From<HashMap<String, T>> for Value {
-    fn from(value: HashMap<String, T>) -> Self {
-        Value::Map(value.into_iter().map(|(k, v)| (k, v.into())).collect())
+impl<'v> From<&Number> for ValueRef<'v> {
+    fn from(value: &Number) -> Self {
+        Self::Number(value.clone())
     }
 }
 
-impl<T: Into<Value>> From<Option<T>> for Value {
-    fn from(value: Option<T>) -> Self {
-        value.map(|v| v.into()).unwrap_or_default()
+impl<'v> From<&'v str> for ValueRef<'v> {
+    fn from(value: &'v str) -> Self {
+        ValueRef::String(value)
     }
 }
 
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Int(a), Self::Int(b)) => a == b,
-            (Self::Int(a), Self::Float(b)) => *a as f64 == *b,
-            (Self::Float(a), Self::Int(b)) => *a == *b as f64,
-            (Self::Float(a), Self::Float(b)) => a == b,
-            (Self::String(a), Self::String(b)) => a == b,
-            (Self::String(a), Self::Int(b)) => a.parse::<i64>().map(|a| a == *b).unwrap_or(false),
-            (Self::String(a), Self::Float(b)) => a.parse::<f64>().map(|a| a == *b).unwrap_or(false),
-            (Self::String(a), Self::Bool(b)) => a.parse::<bool>().map(|a| a == *b).unwrap_or(false),
-            (Self::Int(a), Self::String(b)) => b.parse::<i64>().map(|b| *a == b).unwrap_or(false),
-            (Self::Float(a), Self::String(b)) => b.parse::<f64>().map(|b| *a == b).unwrap_or(false),
-            (Self::Bool(a), Self::String(b)) => b.parse::<bool>().map(|b| *a == b).unwrap_or(false),
-            (Self::Bool(a), Self::Bool(b)) => a == b,
-            (Self::Seq(a), Self::Seq(b)) => a == b,
-            (Self::Map(a), Self::Map(b)) => a == b,
-            (Self::Nil, Self::Nil) => true,
-            (_, _) => false,
-        }
+impl<'v> From<&'v String> for ValueRef<'v> {
+    fn from(value: &'v String) -> Self {
+        ValueRef::String(value.as_str())
     }
 }
 
-impl PartialOrd for Value {
+impl<'v, T: Clone + Into<ValueRef<'v>>> From<&'v Vec<T>> for ValueRef<'v> {
+    fn from(value: &'v Vec<T>) -> Self {
+        ValueRef::Array(value.iter().map(|v| v.clone().into()).collect())
+    }
+}
+
+impl<'v, T: Clone + Into<ValueRef<'v>>> From<&'v HashMap<String, T>> for ValueRef<'v> {
+    fn from(value: &'v HashMap<String, T>) -> Self {
+        ValueRef::Object(value.iter().map(|(k, v)| (k.as_str(), v.clone().into())).collect())
+    }
+}
+
+impl<'v, T: Clone + Into<ValueRef<'v>>> From<&'v Option<T>> for ValueRef<'v> {
+    fn from(value: &'v Option<T>) -> Self {
+        value.as_ref().map(|v| v.clone().into()).unwrap_or_default()
+    }
+}
+
+impl<'v> PartialOrd for ValueRef<'v> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
-            (Self::Int(a), Self::Int(b)) => a.partial_cmp(b),
-            (Self::Int(a), Self::Float(b)) => (*a as f64).partial_cmp(b),
-            (Self::Float(a), Self::Int(b)) => a.partial_cmp(&(*b as f64)),
-            (Self::Float(a), Self::Float(b)) => a.partial_cmp(b),
+            (Self::Number(a), Self::Number(b)) => {
+                if let (Some(a), Some(b)) = (a.as_i64(), b.as_i64()) {
+                    a.partial_cmp(&b)
+                } else if let (Some(a), Some(b)) = (a.as_u64(), b.as_u64()) {
+                    a.partial_cmp(&b)
+                } else if let (Some(a), Some(b)) = (a.as_f64(), b.as_f64()) {
+                    a.partial_cmp(&b)
+                } else {
+                    None
+                }
+            }
             (Self::String(a), Self::String(b)) => a.partial_cmp(b),
-            (Self::String(a), Self::Int(b)) => {
-                a.parse::<i64>().map(|a| a.partial_cmp(b)).unwrap_or(None)
-            }
-            (Self::String(a), Self::Float(b)) => {
-                a.parse::<f64>().map(|a| a.partial_cmp(b)).unwrap_or(None)
-            }
-            (Self::String(a), Self::Bool(b)) => {
-                a.parse::<bool>().map(|a| a.partial_cmp(b)).unwrap_or(None)
-            }
-            (Self::Int(a), Self::String(b)) => {
-                b.parse::<i64>().map(|b| a.partial_cmp(&b)).unwrap_or(None)
-            }
-            (Self::Float(a), Self::String(b)) => {
-                b.parse::<f64>().map(|b| a.partial_cmp(&b)).unwrap_or(None)
-            }
-            (Self::Bool(a), Self::String(b)) => {
-                b.parse::<bool>().map(|b| a.partial_cmp(&b)).unwrap_or(None)
-            }
             (Self::Bool(a), Self::Bool(b)) => a.partial_cmp(b),
-            (Self::Seq(a), Self::Seq(b)) => a.partial_cmp(b),
+            (Self::Array(a), Self::Array(b)) => a.partial_cmp(b),
             (_, _) => None,
-        }
-    }
-}
-
-struct ValueVisitor;
-
-macro_rules! visit {
-    ($fn:ident $S:ty => $Variant:ident($T:ty)) => {
-        fn $fn<E: de::Error>(self, v: $S) -> std::result::Result<Self::Value, E> {
-            Ok(Value::$Variant(v as $T))
-        }
-    };
-    ($fn:ident $S:ty => $Variant:ident) => {
-        fn $fn<E: de::Error>(self, v: $S) -> std::result::Result<Self::Value, E> {
-            Ok(Value::$Variant(v))
-        }
-    };
-}
-
-impl<'de> Visitor<'de> for ValueVisitor {
-    type Value = Value;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a string, int, float, bool, seq, map or none")
-    }
-
-    visit!(visit_i64 i64 => Int);
-    visit!(visit_i32 i32 => Int(i64));
-    visit!(visit_i16 i16 => Int(i64));
-    visit!(visit_i8  i8  => Int(i64));
-    visit!(visit_u64 u64 => Int(i64));
-    visit!(visit_u32 u32 => Int(i64));
-    visit!(visit_u16 u16 => Int(i64));
-    visit!(visit_u8  u8  => Int(i64));
-
-    visit!(visit_f64 f64 => Float);
-    visit!(visit_f32 f32 => Float(f64));
-
-    visit!(visit_bool bool => Bool);
-
-    fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<Self::Value, E> {
-        Ok(Value::String(v.to_string()))
-    }
-
-    fn visit_string<E: de::Error>(self, v: String) -> std::result::Result<Self::Value, E> {
-        Ok(Value::String(v))
-    }
-
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: de::SeqAccess<'de>,
-    {
-        let mut values = Vec::new();
-        while let Some(elem) = seq.next_element::<Value>()? {
-            values.push(elem);
-        }
-        Ok(Value::Seq(values))
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-    where
-        A: de::MapAccess<'de>,
-    {
-        let mut values = HashMap::new();
-        while let Some(key) = map.next_key::<String>()? {
-            let elem = map.next_value::<Value>()?;
-            values.insert(key, elem);
-        }
-        Ok(Value::Map(values))
-    }
-
-    fn visit_none<E: de::Error>(self) -> std::result::Result<Self::Value, E> {
-        Ok(Value::Nil)
-    }
-}
-
-impl<'de> Deserialize<'de> for Value {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Value, D::Error> {
-        deserializer.deserialize_any(ValueVisitor)
-    }
-}
-
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Value::Bool(v) => write!(f, "{v}"),
-            Value::Int(v) => write!(f, "{v}"),
-            Value::Float(v) => write!(f, "{v}"),
-            Value::String(v) => write!(f, "{v}"),
-            Value::Seq(seq) => {
-                let contents = seq.iter().map(|v| format!("{v:?}")).join(", ");
-                write!(f, "[{contents}]")
-            }
-            Value::Map(map) => {
-                let contents = map.iter().map(|(k, v)| format!("{k}: {v:?}")).join(", ");
-                write!(f, "{{{contents}}}")
-            }
-            Value::Nil => write!(f, ""),
         }
     }
 }

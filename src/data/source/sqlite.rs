@@ -3,8 +3,9 @@
 use crate::abox::AliasBox;
 use crate::data::predicate::ValueSet;
 use crate::data::source::Result as SrcResult;
-use crate::data::{Card, DataSource, Predicate, Value};
+use crate::data::{Card, DataSource, Predicate, PredicatePath, PredicatePathPart, Value};
 use itertools::Itertools;
+use thiserror::Error;
 use rusqlite::types::{ToSqlOutput, Value as SqlValue, ValueRef as SqlValueRef};
 use rusqlite::{params_from_iter, Connection, Error as SqliteError, Statement};
 use serde::Deserialize;
@@ -122,16 +123,20 @@ impl<'c, C: Card> Iterator for SqliteIterator<'c, C> {
     }
 }
 
-impl Value {
-    /// Converts the value into a SQL compatible representation.
-    fn to_sql<'a>(&'a self) -> ToSqlOutput<'a> {
-        match self {
-            Value::Bool(v) => ToSqlOutput::Owned(SqlValue::Integer(*v as i64)),
-            Value::Int(v) => ToSqlOutput::Owned(SqlValue::Integer(*v)),
-            Value::Float(v) => ToSqlOutput::Owned(SqlValue::Real(*v)),
-            Value::String(v) => ToSqlOutput::Borrowed(SqlValueRef::Text(v.as_bytes())),
-            _ => ToSqlOutput::Owned(SqlValue::Null),
+fn value_to_sql<'v>(value: &'v Value) -> ToSqlOutput<'v> {
+    match value {
+        Value::Bool(v) => ToSqlOutput::Owned(SqlValue::Integer(*v as i64)),
+        Value::Number(x) => {
+            if let Some(v) = x.as_i64() {
+                ToSqlOutput::Owned(SqlValue::Integer(v))
+            } else if let Some(v) = x.as_f64() {
+                ToSqlOutput::Owned(SqlValue::Real(v))
+            } else {
+                ToSqlOutput::Owned(SqlValue::Null)
+            }
         }
+        Value::String(v) => ToSqlOutput::Borrowed(SqlValueRef::Text(v.as_bytes())),
+        _ => ToSqlOutput::Owned(SqlValue::Null),
     }
 }
 
@@ -150,16 +155,30 @@ macro_rules! seq_write {
     }};
 }
 
+#[derive(Debug, Error)]
+pub enum SqlitePredicateError {
+    #[error("{0}")]
+    Fmt(#[source] std::fmt::Error),
+    #[error("only simple column names are allowed in predicates for SQLite, but got {0}")]
+    ColOnly(String),
+}
+
+impl From<std::fmt::Error> for SqlitePredicateError {
+    fn from(value: std::fmt::Error) -> Self {
+        Self::Fmt(value)
+    }
+}
+
 impl Predicate {
     /// Formats a predicate into a SQLite `WHERE` clause.
-    pub fn where_clause(&'_ self) -> Result<(String, Vec<ToSqlOutput<'_>>), std::fmt::Error> {
+    fn where_clause(&'_ self) -> Result<(String, Vec<ToSqlOutput<'_>>), SqlitePredicateError> {
         let mut buf = String::from("WHERE ");
         let mut vars = Vec::new();
         self.sql_r(&mut buf, &mut vars)?;
         Ok((buf, vars))
     }
 
-    fn sql_r<'a>(&'a self, buf: &mut String, vars: &mut Vec<ToSqlOutput<'a>>) -> std::fmt::Result {
+    fn sql_r<'a>(&'a self, buf: &mut String, vars: &mut Vec<ToSqlOutput<'a>>) -> Result<(), SqlitePredicateError> {
         match self {
             Self::And(a, b) => {
                 seq_write!(buf; "("; a.sql_r(buf, vars); " AND "; b.sql_r(buf, vars); ")")
@@ -169,51 +188,59 @@ impl Predicate {
             }
             Self::Not(a) => seq_write!(buf; "NOT "; a.sql_r(buf, vars)),
             Self::Eq(col, v) => {
-                write!(buf, "{} = ?", esc_col(col))?;
-                vars.push(v.to_sql());
+                if let Value::Null = v {
+                    write!(buf, "{} IS NULL", esc_col(col)?)?;
+                } else {
+                    write!(buf, "{} = ?", esc_col(col)?)?;
+                    vars.push(value_to_sql(v));
+                }
             }
             Self::Neq(col, v) => {
-                write!(buf, "{} != ?", esc_col(col))?;
-                vars.push(v.to_sql());
+                write!(buf, "{} != ?", esc_col(col)?)?;
+                vars.push(value_to_sql(v));
             }
             Self::In(col, ValueSet::Int(vs)) => {
-                write!(buf, "{} IN ({})", esc_col(col), repeat_vars(vs.len()))?;
+                write!(buf, "{} IN ({})", esc_col(col)?, repeat_vars(vs.len()))?;
                 vars.extend(vs.iter().map(|v| ToSqlOutput::Owned(SqlValue::Integer(*v))));
             }
             Self::In(col, ValueSet::Str(vs)) => {
-                write!(buf, "{} IN ({})", esc_col(col), repeat_vars(vs.len()))?;
+                write!(buf, "{} IN ({})", esc_col(col)?, repeat_vars(vs.len()))?;
                 vars.extend(
                     vs.iter()
                         .map(|v| ToSqlOutput::Borrowed(SqlValueRef::Text(v.as_bytes()))),
                 );
             }
             Self::Like(col, v) => {
-                write!(buf, "{} LIKE ?", esc_col(col))?;
+                write!(buf, "{} LIKE ?", esc_col(col)?)?;
                 vars.push(ToSqlOutput::Owned(SqlValue::Text(format!("%{v}%"))));
             }
             Self::Lt(col, v) => {
-                write!(buf, "{} < ?", esc_col(col))?;
-                vars.push(v.to_sql());
+                write!(buf, "{} < ?", esc_col(col)?)?;
+                vars.push(value_to_sql(v));
             }
             Self::Le(col, v) => {
-                write!(buf, "{} <= ?", esc_col(col))?;
-                vars.push(v.to_sql());
+                write!(buf, "{} <= ?", esc_col(col)?)?;
+                vars.push(value_to_sql(v));
             }
             Self::Gt(col, v) => {
-                write!(buf, "{} > ?", esc_col(col))?;
-                vars.push(v.to_sql());
+                write!(buf, "{} > ?", esc_col(col)?)?;
+                vars.push(value_to_sql(v));
             }
             Self::Ge(col, v) => {
-                write!(buf, "{} >= ?", esc_col(col))?;
-                vars.push(v.to_sql());
+                write!(buf, "{} >= ?", esc_col(col)?)?;
+                vars.push(value_to_sql(v));
             }
         };
         Ok(())
     }
 }
 
-fn esc_col(s: impl AsRef<str>) -> String {
-    format!("`{}`", s.as_ref().replace("`", "``"))
+fn esc_col(p: &PredicatePath) -> Result<String, SqlitePredicateError> {
+    if let [PredicatePathPart::Key(col)] = p.0.as_slice() {
+        Ok(format!("`{}`", col.replace("`", "``")))
+    } else {
+        Err(SqlitePredicateError::ColOnly(p.to_string()))
+    }
 }
 
 fn repeat_vars(n: usize) -> String {

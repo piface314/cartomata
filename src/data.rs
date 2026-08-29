@@ -4,12 +4,12 @@ mod predicate;
 pub mod source;
 mod value;
 
-pub use crate::data::predicate::Predicate;
+pub use crate::data::predicate::{Predicate, Access, PredicatePath, PredicatePathPart};
 pub use crate::data::source::DataSource;
-pub use crate::data::value::Value;
+pub use crate::data::value::{Value, ValueRef};
 
 #[cfg(feature = "derive")]
-pub use cartomata_derive::Card;
+pub use cartomata_derive::{Card, Access};
 use serde::de::DeserializeOwned;
 
 /// Represents a single card, to mark data types to be used as input to be processed.
@@ -33,5 +33,11 @@ use serde::de::DeserializeOwned;
 /// ```
 pub trait Card: DeserializeOwned + 'static {
     /// Generic access to card data fields regardless of its implementation.
-    fn get(&self, field: &str) -> Value;
+    fn get(&'_ self, path: &PredicatePath) -> ValueRef<'_>;
+}
+
+impl<C: DeserializeOwned + Access + 'static> Card for C {
+    fn get(&'_ self, path: &PredicatePath) -> ValueRef<'_> {
+        self.access(path.0.as_slice())
+    }
 }

@@ -8,7 +8,15 @@ use syn::{parse_macro_input, DeriveInput};
 #[proc_macro_derive(Card)]
 pub fn card(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = parse_macro_input!(input);
-    expand::derive_card(&ast)
+    expand::derive_predicate_access(&ast)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+#[proc_macro_derive(Access)]
+pub fn predicate_acess(input: TokenStream) -> TokenStream {
+    let ast: DeriveInput = parse_macro_input!(input);
+    expand::derive_predicate_access(&ast)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }

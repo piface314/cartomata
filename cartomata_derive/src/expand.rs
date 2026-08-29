@@ -2,18 +2,8 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{ext::IdentExt, spanned::Spanned, Data, DataStruct, DeriveInput, Fields};
 
-pub fn derive_card(ast: &DeriveInput) -> syn::Result<TokenStream> {
-    let get_method = derive_card_get_value(ast)?;
+pub fn derive_predicate_access(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let name = &ast.ident;
-    let gen = quote! {
-        impl ::cartomata::data::Card for #name {
-            #get_method
-        }
-    };
-    Ok(gen)
-}
-
-pub fn derive_card_get_value(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let idents = match &ast.data {
         Data::Struct(DataStruct { fields: Fields::Named(fields), .. }) => Ok(fields
             .named
@@ -26,13 +16,25 @@ pub fn derive_card_get_value(ast: &DeriveInput) -> syn::Result<TokenStream> {
     }?;
     let arms = idents.map(|ident| {
         let unraw_ident = ident.unraw();
-        quote!( stringify!(#unraw_ident) => self.#ident.clone().into(), )
+        quote! {
+            stringify!(#unraw_ident) => ::cartomata::data::Access::access(&self.#ident, rest)
+        }
     });
     let gen = quote! {
-        fn get(&self, field: &str) -> ::cartomata::data::Value {
-            match field {
-                #(#arms)*
-                _ => ::cartomata::data::Value::Nil
+        impl ::cartomata::data::Access for #name {
+            fn access(&'_ self, parts: &[::cartomata::data::PredicatePathPart]) -> ::cartomata::data::ValueRef<'_> {
+                match parts {
+                    [
+                        ::cartomata::data::PredicatePathPart::Key(key),
+                        rest @ ..
+                    ] => {
+                        match key.as_str() {
+                            #(#arms),*,
+                            _ => ::cartomata::data::ValueRef::Null
+                        }
+                    }
+                    _ => ::cartomata::data::ValueRef::Null
+                }
             }
         }
     };

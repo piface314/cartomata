@@ -1,9 +1,10 @@
 //! Error types for cartomata CLI.
 
 use std::path::{Path, PathBuf};
+use gerana::ParseError;
 use thiserror::Error;
 
-use crate::error::{FontMapError, FontMapInitError, PredicateParseError, RuntimeError};
+use crate::error::{FontMapError, FontMapInitError, PredicateError, RuntimeError};
 
 #[derive(Debug, Error)]
 pub enum DynTemplateError {
@@ -160,7 +161,7 @@ pub enum CliError {
     #[error("failed to configure template: {0}")]
     Template(#[source] DynTemplateError),
     #[error("failed to parse predicate: {0}")]
-    Predicate(#[source] PredicateParseError),
+    Predicate(#[source] ParseError<PredicateError>),
     #[error("{0}")]
     Io(#[source] std::io::Error),
     #[error("{0}")]
@@ -179,8 +180,8 @@ impl From<DynTemplateError> for CliError {
     }
 }
 
-impl From<PredicateParseError> for CliError {
-    fn from(e: PredicateParseError) -> Self {
+impl From<ParseError<PredicateError>> for CliError {
+    fn from(e: ParseError<PredicateError>) -> Self {
         Self::Predicate(e)
     }
 }

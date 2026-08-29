@@ -1,6 +1,7 @@
 //! Common error types.
 
 use std::path::{Path, PathBuf};
+use gerana::ParseError;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Error)]
@@ -154,31 +155,12 @@ impl From<MarkupParseError> for ImgError {
 }
 
 #[derive(Debug, Clone, Error)]
-pub enum PredicateParseError {
-    #[error("invalid input {slice:?}")]
-    ScanError { slice: String },
-    #[error("syntax error{}:\n{desc}", expected.as_ref().map(|e| format!(", expected {e}")).unwrap_or_default())]
-    SyntaxError { desc: String, expected: Option<String> },
+pub enum PredicateError {
     #[error("invalid operand for `{operator}`: expected {expected}, got {got}")]
     BadOperand { operator: String, expected: &'static str, got: String },
 }
 
-impl PredicateParseError {
-    pub fn scan(slice: impl AsRef<str>) -> Self {
-        Self::ScanError { slice: slice.as_ref().to_string() }
-    }
-
-    pub fn syntax_error_expecting(expected: &str, src: &str, i: usize) -> Self {
-        Self::SyntaxError {
-            desc: str_excerpt(10, i, src),
-            expected: Some(expected.to_string()),
-        }
-    }
-
-    pub fn syntax_error(src: &str, i: usize) -> Self {
-        Self::SyntaxError { desc: str_excerpt(10, i, src), expected: None }
-    }
-
+impl PredicateError {
     pub fn bad_operand(
         operator: impl std::fmt::Display,
         expected: &'static str,
@@ -189,6 +171,12 @@ impl PredicateParseError {
             expected,
             got: got.to_string(),
         }
+    }
+}
+
+impl From<PredicateError> for ParseError<PredicateError> {
+    fn from(value: PredicateError) -> Self {
+        Self::Other(value)
     }
 }
 
