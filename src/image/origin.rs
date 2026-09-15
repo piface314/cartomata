@@ -1,6 +1,8 @@
 //! Origin position parameter.
 
-use serde::{de, Deserialize};
+use crate::data::{Access, ValueRef};
+use logos::{Lexer, Logos};
+use serde::{de, ser, Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone)]
 pub enum Origin {
@@ -27,6 +29,15 @@ impl Default for TextOrigin {
     }
 }
 
+impl From<Origin> for TextOrigin {
+    fn from(value: Origin) -> Self {
+        match value {
+            Origin::Absolute(v) => Self::Absolute(v),
+            Origin::Relative(v) => Self::Relative(v),
+        }
+    }
+}
+
 impl Origin {
     pub fn apply(&self, x: f64) -> f64 {
         match self {
@@ -49,8 +60,9 @@ impl TextOrigin {
 macro_rules! visit_int {
     ($fn:ident $T:ty) => {
         fn $fn<E>(self, v: $T) -> Result<Self::Value, E>
-            where
-                E: de::Error, {
+        where
+            E: de::Error,
+        {
             match v {
                 1 => Ok(Self::Value::Relative(1.0)),
                 -1 => Ok(Self::Value::Relative(-1.0)),
@@ -63,11 +75,25 @@ macro_rules! visit_int {
 macro_rules! visit_float {
     ($fn:ident $T:ty) => {
         fn $fn<E>(self, v: $T) -> Result<Self::Value, E>
-            where
-                E: de::Error, {
+        where
+            E: de::Error,
+        {
             Ok(Self::Value::Relative(v as f64))
         }
     };
+}
+
+#[derive(Debug, Logos)]
+#[logos(skip r"[ \t\n\f]+")]
+enum OriginToken {
+    #[regex(r"[+-]?\d+", |lex| lex.slice().parse::<i64>().unwrap())]
+    ValInt(i64),
+    #[regex(r"[+-]?(\d*\.\d+(e[+-]?\d+)?|\d+e[+-]?\d+)", |lex| lex.slice().parse::<f64>().unwrap(), ignore(case))]
+    ValFloat(f64),
+    #[token("%")]
+    Percent,
+    #[token("px")]
+    Px,
 }
 
 struct OriginVisitor;
@@ -85,6 +111,37 @@ impl<'de> de::Visitor<'de> for OriginVisitor {
     visit_int!(visit_i64 i64);
     visit_float!(visit_f32 f32);
     visit_float!(visit_f64 f64);
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        macro_rules! e {
+            () => {
+                E::custom(
+                    "expected a number, optionally followed by relative (%) or absolute (px) unit",
+                )
+            };
+        }
+        let mut lex: Lexer<OriginToken> = Lexer::new(v);
+        let v = match lex.next().transpose().map_err(|_| e!())? {
+            Some(OriginToken::ValInt(v)) => Ok(v as f64),
+            Some(OriginToken::ValFloat(v)) => Ok(v),
+            _ => Err(e!()),
+        }?;
+        match lex.next().transpose().map_err(|_| e!())? {
+            Some(OriginToken::Px) => Ok(Origin::Absolute(v)),
+            Some(OriginToken::Percent) => Ok(Origin::Relative(v / 100.0)),
+            None => {
+                if v.abs() <= 1.0 {
+                    Ok(Origin::Relative(v))
+                } else {
+                    Ok(Origin::Absolute(v))
+                }
+            }
+            _ => Err(e!()),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for Origin {
@@ -93,6 +150,24 @@ impl<'de> Deserialize<'de> for Origin {
         D: de::Deserializer<'de>,
     {
         deserializer.deserialize_any(OriginVisitor)
+    }
+}
+
+impl Serialize for Origin {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        match self {
+            Self::Relative(v) => serializer.serialize_str(&format!("{}%", v * 100.0)),
+            Self::Absolute(v) => serializer.serialize_str(&format!("{v}px")),
+        }
+    }
+}
+
+impl Access for Origin {
+    fn access(&'_ self, _parts: &[crate::data::PredicatePathPart]) -> ValueRef<'_> {
+        ValueRef::Null
     }
 }
 
@@ -106,11 +181,12 @@ impl<'de> de::Visitor<'de> for TextOriginVisitor {
     }
 
     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-        where
-            E: de::Error, {
+    where
+        E: de::Error,
+    {
         match v {
             "baseline" => Ok(Self::Value::Baseline),
-            _ => Err(E::custom(format!("unknown origin value {v:?}")))
+            _ => OriginVisitor.visit_str(v).map(|o| o.into()),
         }
     }
 
@@ -128,5 +204,24 @@ impl<'de> Deserialize<'de> for TextOrigin {
         D: de::Deserializer<'de>,
     {
         deserializer.deserialize_any(TextOriginVisitor)
+    }
+}
+
+impl Serialize for TextOrigin {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        match self {
+            Self::Baseline => serializer.serialize_str("baseline"),
+            Self::Relative(v) => serializer.serialize_str(&format!("{}%", v * 100.0)),
+            Self::Absolute(v) => serializer.serialize_str(&format!("{v}px")),
+        }
+    }
+}
+
+impl Access for TextOrigin {
+    fn access(&'_ self, _parts: &[crate::data::PredicatePathPart]) -> ValueRef<'_> {
+        ValueRef::Null
     }
 }
