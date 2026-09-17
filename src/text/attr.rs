@@ -476,12 +476,12 @@ macro_rules! into_pango {
     (
         $(#[$outer:meta])*
         $vis:vis enum $Enum:ident {
-            $( $key:literal => $Variant:ident ),*
+            $( $key:literal => $(#[$m:meta])? $Variant:ident ),*
         }
     ) => {
         $(#[$outer])*
         $vis enum $Enum {
-            $( $Variant ),*
+            $( $(#[$m])? $Variant ),*
         }
 
         impl FromStr for $Enum {
@@ -526,11 +526,11 @@ macro_rules! into_pango {
 }
 
 into_pango! {
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
     #[derive(Deserialize, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum Underline {
-        "none"   => None,
+        "none"   => #[default] None,
         "single" => Single,
         "double" => Double,
         "low"    => Low,
@@ -539,28 +539,28 @@ into_pango! {
 }
 
 into_pango! {
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
     #[derive(Deserialize, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum Overline {
-        "none"   => None,
+        "none"   => #[default] None,
         "single" => Single
     }
 }
 
 into_pango! {
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
     #[derive(Deserialize, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum BaselineShift {
-        "none"        => None,
+        "none"        => #[default] None,
         "superscript" => Superscript,
         "subscript"   => Subscript
     }
 }
 
 into_pango! {
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
     #[derive(Deserialize, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum Gravity {
@@ -568,7 +568,7 @@ into_pango! {
         "east"  => East,
         "north" => North,
         "west"  => West,
-        "auto"  => Auto
+        "auto"  => #[default] Auto
     }
 }
 
@@ -596,7 +596,7 @@ into_pango! {
 }
 
 into_pango! {
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
     #[derive(Deserialize, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum Stretch {
@@ -604,7 +604,7 @@ into_pango! {
         "extra-condensed" => ExtraCondensed,
         "condensed"       => Condensed,
         "semi-condensed"  => SemiCondensed,
-        "normal"          => Normal,
+        "normal"          => #[default] Normal,
         "semi-expanded"   => SemiExpanded,
         "expanded"        => Expanded,
         "extra-expanded"  => ExtraExpanded,
@@ -613,11 +613,11 @@ into_pango! {
 }
 
 into_pango! {
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
     #[derive(Deserialize, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum TextTransform {
-        "none"       => None,
+        "none"       => #[default] None,
         "lowercase"  => Lowercase,
         "uppercase"  => Uppercase,
         "capitalize" => Capitalize
@@ -630,18 +630,24 @@ pub struct ShowFlags(pub pango::ShowFlags);
 impl FromStr for ShowFlags {
     type Err = &'static str;
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        let mut flags: pango::ShowFlags = pango::ShowFlags::empty();
+        let mut flags = Self::default();
         for s in s.split('|') {
-            let other = match s {
+            let other = match s.trim() {
                 "none" => pango::ShowFlags::NONE,
                 "spaces" => pango::ShowFlags::SPACES,
                 "line-breaks" => pango::ShowFlags::LINE_BREAKS,
                 "ignorables" => pango::ShowFlags::IGNORABLES,
                 _ => return Err("expected either `none`, `spaces`, `line-breaks`, `ignorables`, separated by `|`"),
             };
-            flags.insert(other);
+            flags.0.insert(other);
         }
-        Ok(Self(flags))
+        Ok(flags)
+    }
+}
+
+impl Default for ShowFlags {
+    fn default() -> Self {
+        Self(pango::ShowFlags::empty())
     }
 }
 
