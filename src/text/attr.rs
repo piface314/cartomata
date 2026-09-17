@@ -6,7 +6,6 @@ use crate::text::FontMap;
 
 use libvips::VipsImage;
 use regex::Regex;
-#[cfg(feature = "cli")]
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -528,8 +527,8 @@ macro_rules! into_pango {
 
 into_pango! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     pub enum Underline {
         "none"   => None,
         "single" => Single,
@@ -541,8 +540,8 @@ into_pango! {
 
 into_pango! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     pub enum Overline {
         "none"   => None,
         "single" => Single
@@ -551,8 +550,8 @@ into_pango! {
 
 into_pango! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     pub enum BaselineShift {
         "none"        => None,
         "superscript" => Superscript,
@@ -562,8 +561,8 @@ into_pango! {
 
 into_pango! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     pub enum Gravity {
         "south" => South,
         "east"  => East,
@@ -587,8 +586,8 @@ impl From<pango::Gravity> for Gravity {
 
 into_pango! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     pub enum GravityHint {
         "natural" => Natural,
         "strong"  => Strong,
@@ -598,8 +597,8 @@ into_pango! {
 
 into_pango! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     pub enum Stretch {
         "ultra-condensed" => UltraCondensed,
         "extra-condensed" => ExtraCondensed,
@@ -615,8 +614,8 @@ into_pango! {
 
 into_pango! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     pub enum TextTransform {
         "none"       => None,
         "lowercase"  => Lowercase,
@@ -652,9 +651,8 @@ impl Into<pango::ShowFlags> for ShowFlags {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-#[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Segment {
     Word,
     Sentence,
@@ -690,8 +688,8 @@ pub enum LayoutAttr<'a> {
 
 into_pango! {
     #[derive(Debug, Copy, Clone)]
-    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     pub enum Direction {
         Ltr,
         Rtl,
@@ -705,8 +703,8 @@ into_pango! {
 
 into_pango! {
     #[derive(Debug, Copy, Clone)]
-    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     pub enum Alignment {
         Left,
         Center,
@@ -716,8 +714,8 @@ into_pango! {
 
 into_pango! {
     #[derive(Debug, Copy, Clone)]
-    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
-    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     pub enum WrapMode {
         Word,
         Char,
