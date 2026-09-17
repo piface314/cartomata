@@ -9,7 +9,7 @@ pub use crate::data::source::DataSource;
 pub use crate::data::value::{Value, ValueRef};
 
 #[cfg(feature = "derive")]
-pub use cartomata_derive::{Card, Access};
+pub use cartomata_derive::{Card, Access, NoAccess};
 use serde::de::DeserializeOwned;
 
 /// Represents a single card, to mark data types to be used as input to be processed.
