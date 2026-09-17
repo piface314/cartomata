@@ -154,6 +154,7 @@ enum_attr! {
         "letter-spacing"  => LetterSpacing(i32),
         "gravity"         => Gravity(Gravity),
         "gravity-hint"    => GravityHint(GravityHint),
+        "stretch"         => Stretch(Stretch),
         "show"            => Show(ShowFlags),
         "insert-hyphens"  => InsertHyphens(bool),
         "allow-breaks"    => AllowBreaks(bool),
@@ -247,6 +248,9 @@ impl SpanAttr {
             Self::Gravity(x) => push!(Gravity into AttrInt new_gravity (x) >> attrs at i, j),
             Self::GravityHint(x) => {
                 push!(GravityHint into AttrInt new_gravity_hint (x) >> attrs at i, j)
+            }
+            Self::Stretch(x) => {
+                push!(Stretch into AttrInt new_stretch (x) >> attrs at i, j)
             }
             Self::Show(ShowFlags(x)) => push!(AttrInt new_show (x) >> attrs at i, j),
             Self::InsertHyphens(x) => push!(AttrInt new_insert_hyphens (x) >> attrs at i, j),
@@ -589,6 +593,23 @@ into_pango! {
         "natural" => Natural,
         "strong"  => Strong,
         "line"    => Line
+    }
+}
+
+into_pango! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[cfg_attr(feature = "cli", derive(Deserialize, Serialize))]
+    #[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+    pub enum Stretch {
+        "ultra-condensed" => UltraCondensed,
+        "extra-condensed" => ExtraCondensed,
+        "condensed"       => Condensed,
+        "semi-condensed"  => SemiCondensed,
+        "normal"          => Normal,
+        "semi-expanded"   => SemiExpanded,
+        "expanded"        => Expanded,
+        "extra-expanded"  => ExtraExpanded,
+        "ultra-expanded"  => UltraExpanded
     }
 }
 
