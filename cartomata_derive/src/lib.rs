@@ -14,9 +14,17 @@ pub fn card(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_derive(Access)]
-pub fn predicate_acess(input: TokenStream) -> TokenStream {
+pub fn predicate_access(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = parse_macro_input!(input);
     expand::derive_predicate_access(&ast)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+#[proc_macro_derive(NoAccess)]
+pub fn predicate_no_access(input: TokenStream) -> TokenStream {
+    let ast: DeriveInput = parse_macro_input!(input);
+    expand::derive_predicate_no_access(&ast)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }

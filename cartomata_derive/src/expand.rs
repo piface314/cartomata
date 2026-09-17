@@ -2,6 +2,17 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{ext::IdentExt, spanned::Spanned, Data, DataStruct, DeriveInput, Fields};
 
+pub fn derive_predicate_no_access(ast: &DeriveInput) -> syn::Result<TokenStream> {
+    let name = &ast.ident;
+    Ok(quote! {
+        impl ::cartomata::data::Access for #name {
+            fn access(&'_ self, _parts: &[::cartomata::data::PredicatePathPart]) -> ::cartomata::data::ValueRef<'_> {
+                ::cartomata::data::ValueRef::Null
+            }
+        }
+    })
+}
+
 pub fn derive_predicate_access(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let name = &ast.ident;
     let idents = match &ast.data {
