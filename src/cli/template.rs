@@ -3,6 +3,11 @@ use crate::cli::config::Config;
 use crate::cli::decode::{LuaDecoder, LuaDecoderFactory};
 use crate::cli::error::{DynTemplateError, SourceError};
 use crate::cli::output::{OutputMap, Resize};
+use crate::data::source::JsonSource;
+#[cfg(feature = "toml")]
+use crate::data::source::TomlSource;
+#[cfg(feature = "yaml")]
+use crate::data::source::YamlSource;
 #[cfg(feature = "csv")]
 use crate::data::source::{CsvSource, CsvSourceConfig};
 #[cfg(feature = "sqlite")]
@@ -120,6 +125,11 @@ pub enum SourceType {
     Csv,
     #[cfg(feature = "sqlite")]
     Sqlite,
+    Json,
+    #[cfg(feature = "toml")]
+    Toml,
+    #[cfg(feature = "yaml")]
+    Yaml,
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +167,11 @@ impl SourceMap {
             "csv" | "tsv" => Some(SourceType::Csv),
             #[cfg(feature = "sqlite")]
             "db" | "cdb" => Some(SourceType::Sqlite),
+            "json" => Some(SourceType::Json),
+            #[cfg(feature = "toml")]
+            "toml" => Some(SourceType::Toml),
+            #[cfg(feature = "yaml")]
+            "yaml" => Some(SourceType::Yaml),
             _ => None,
         }
     }
@@ -186,6 +201,23 @@ impl SourceMap {
                     .ok_or_else(|| SourceError::missing_config("sqlite"))?;
                 let source = SqliteSource::open(config, &path)
                     .map_err(|e| SourceError::cant_open_sqlite(&path, e))?;
+                Ok(Box::new(source) as Box<dyn DataSource<C>>)
+            }
+            SourceType::Json => {
+                let source =
+                    JsonSource::open(&path).map_err(|e| SourceError::cant_open_other(&path, e))?;
+                Ok(Box::new(source) as Box<dyn DataSource<C>>)
+            },
+            #[cfg(feature = "toml")]
+            SourceType::Toml => {
+                let source =
+                    TomlSource::open(&path).map_err(|e| SourceError::cant_open_other(&path, e))?;
+                Ok(Box::new(source) as Box<dyn DataSource<C>>)
+            }
+            #[cfg(feature = "yaml")]
+            SourceType::Yaml => {
+                let source =
+                    YamlSource::open(&path).map_err(|e| SourceError::cant_open_other(&path, e))?;
                 Ok(Box::new(source) as Box<dyn DataSource<C>>)
             }
         }

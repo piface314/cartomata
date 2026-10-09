@@ -54,6 +54,12 @@ pub enum SourceError {
         reason: rusqlite::Error,
         path: PathBuf,
     },
+    #[error("failed to open data source {:?}: {reason}", path.display())]
+    CantOpenOther {
+        #[source]
+        reason: std::io::Error,
+        path: PathBuf,
+    }
 }
 
 impl SourceError {
@@ -73,6 +79,10 @@ impl SourceError {
     #[cfg(feature = "sqlite")]
     pub fn cant_open_sqlite(path: impl AsRef<Path>, reason: rusqlite::Error) -> Self {
         Self::CantOpenSqlite { reason, path: path.as_ref().to_path_buf() }
+    }
+
+    pub fn cant_open_other(path: impl AsRef<Path>, reason: std::io::Error) -> Self {
+        Self::CantOpenOther { reason, path: path.as_ref().to_path_buf() }
     }
 }
 

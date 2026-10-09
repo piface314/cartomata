@@ -64,7 +64,7 @@ pub struct CsvSource {
 
 impl CsvSource {
     /// Opens a CSV file according to the configurations, to be used a card data source.
-    pub fn open(config: CsvSourceConfig, path: &impl AsRef<Path>) -> Result<CsvSource, CsvError> {
+    pub fn open(config: CsvSourceConfig, path: &impl AsRef<Path>) -> Result<Self, CsvError> {
         let path = path.as_ref();
         let reader = csv::ReaderBuilder::new()
             .delimiter(config.delimiter as u8)

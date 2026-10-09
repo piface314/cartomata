@@ -4,16 +4,26 @@
 
 #[cfg(feature = "csv")]
 mod csv;
+mod json;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "toml")]
+mod toml;
+#[cfg(feature = "yaml")]
+mod yaml;
 
-#[cfg(feature = "csv")]
-pub use crate::data::source::csv::{CsvSource, CsvSourceConfig};
-#[cfg(feature = "sqlite")]
-pub use crate::data::source::sqlite::{SqliteSource, SqliteSourceConfig};
 use crate::data::Card;
 use crate::data::Predicate;
+#[cfg(feature = "csv")]
+pub use csv::{CsvSource, CsvSourceConfig};
+pub use json::JsonSource;
+#[cfg(feature = "sqlite")]
+pub use sqlite::{SqliteSource, SqliteSourceConfig};
 use std::error::Error;
+#[cfg(feature = "toml")]
+pub use toml::TomlSource;
+#[cfg(feature = "yaml")]
+pub use yaml::YamlSource;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
