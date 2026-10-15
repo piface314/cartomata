@@ -114,8 +114,8 @@ impl Template<DynCard> for DynTemplate {
         &self.font_map
     }
 
-    fn output(&self, card: &DynCard, img: &VipsImage, ib: &ImgBackend) -> Result<(), impl Error> {
-        self.output_map.write(card, img, ib)
+    fn output(&self, card: &DynCard, img: VipsImage, ib: &ImgBackend) -> Result<(), impl Error> {
+        self.output_map.write(card, &img, ib)
     }
 }
 

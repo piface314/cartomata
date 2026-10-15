@@ -20,5 +20,5 @@ pub trait Template<C: Card> {
     fn decoder(&self) -> Result<Self::Decoder, impl Error>;
     fn resources(&self) -> &ImageMap;
     fn fonts(&self) -> &FontMap;
-    fn output(&self, card: &C, img: &VipsImage, ib: &ImgBackend) -> Result<(), impl Error>;
+    fn output(&self, card: &C, img: VipsImage, ib: &ImgBackend) -> Result<(), impl Error>;
 }

@@ -75,7 +75,7 @@ where
         let layers = decoder.decode(card).map_err(RuntimeError::cant_decode)?;
         let img = layers.render(ctx)?;
         template
-            .output(card, &img, &ctx.backend)
+            .output(card, img, &ctx.backend)
             .map_err(RuntimeError::cant_write)?;
         Ok(())
     }

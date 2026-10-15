@@ -278,7 +278,7 @@ impl<'a, C: Card + Send, T: Template<C>, V: Visitor<C, T>> Worker<'a, C, T, V> {
         let layers = decoder.decode(card).map_err(RuntimeError::cant_decode)?;
         let img = layers.render(ctx)?;
         self.template
-            .output(card, &img, &ctx.backend)
+            .output(card, img, &ctx.backend)
             .map_err(RuntimeError::cant_write)?;
         Ok(())
     }
