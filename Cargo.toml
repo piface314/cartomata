@@ -59,6 +59,7 @@ sqlite = ["dep:rusqlite", "dep:serde_rusqlite"]
 toml = ["dep:toml"]
 yaml = ["dep:yaml_serde"]
 diff = ["dep:md-5"]
+vips-8-16 = []
 
 [[bin]]
 name = "cartomata"

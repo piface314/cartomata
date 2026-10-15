@@ -40,21 +40,29 @@ impl Default for FitMode {
     }
 }
 
+type ImgResult<T> = Result<T, ImgError>;
+
+impl From<VipsApp> for ImgBackend {
+    fn from(vips_app: VipsApp) -> Self {
+        Self { vips_app }
+    }
+}
+
 impl ImgBackend {
-    pub fn new() -> Result<Self, ImgError> {
+    pub fn new() -> ImgResult<Self> {
         let vips_app = libvips::VipsApp::default("cartomata")
             .map_err(|source| ImgError::Vips { source, details: None })?;
         Ok(Self { vips_app })
     }
 
-    fn err(&self, source: libvips::error::Error) -> ImgError {
+    pub fn err(&self, source: libvips::error::Error) -> ImgError {
         ImgError::Vips {
             source,
             details: self.vips_app.error_buffer().ok().map(|s| s.to_string()),
         }
     }
 
-    fn reinterpret(&self, img: &VipsImage) -> Result<VipsImage, ImgError> {
+    pub fn reinterpret(&self, img: &VipsImage) -> ImgResult<VipsImage> {
         let img = ops::cast(&img, ops::BandFormat::Uchar).map_err(|e| self.err(e))?;
         let img = ops::copy_with_opts(
             &img,
@@ -75,15 +83,27 @@ impl ImgBackend {
         }
     }
 
-    pub fn create(&self, bg: &Color, width: i32, height: i32) -> Result<VipsImage, ImgError> {
-        let (r, g, b, a) = bg.scaled_rgba();
-        let img = ops::black_with_opts(width, height, &ops::BlackOptions { bands: 4 })
-            .map_err(|e| self.err(e))?;
-        let img = VipsImage::new_from_image(&img, &[r, g, b, a]).map_err(|e| self.err(e))?;
-        self.reinterpret(&img)
+    pub fn create(&self, bg: &Color, width: i32, height: i32) -> ImgResult<VipsImage> {
+        self.reinterpret(&self.create_raw(bg, width, height)?)
     }
 
-    pub fn cairo_to_vips(&self, img: ImageSurface) -> Result<VipsImage, ImgError> {
+    pub fn create_raw(&self, bg: &Color, width: i32, height: i32) -> ImgResult<VipsImage> {
+        if bg.has_alpha() {
+            let (r, g, b, a) = bg.scaled_rgba();
+            let img = ops::black_with_opts(width, height, &ops::BlackOptions { bands: 4 })
+                .map_err(|e| self.err(e))?;
+            let img = VipsImage::new_from_image(&img, &[r, g, b, a]).map_err(|e| self.err(e))?;
+            Ok(img)
+        } else {
+            let (r, g, b) = bg.scaled_rgb();
+            let img = ops::black_with_opts(width, height, &ops::BlackOptions { bands: 3 })
+                .map_err(|e| self.err(e))?;
+            let img = VipsImage::new_from_image(&img, &[r, g, b]).map_err(|e| self.err(e))?;
+            Ok(img)
+        }
+    }
+
+    pub fn cairo_to_vips(&self, img: ImageSurface) -> ImgResult<VipsImage> {
         let mut buffer = Vec::new();
         img.write_to_png(&mut buffer)
             .map_err(ImgError::cairo_to_vips)?;
@@ -92,13 +112,17 @@ impl ImgBackend {
         self.reinterpret(&img)
     }
 
-    pub fn open(&self, fp: impl AsRef<str>) -> Result<VipsImage, ImgError> {
-        let fp = fp.as_ref();
-        let img = VipsImage::new_from_file(fp).map_err(|e| self.err(e))?;
-        self.reinterpret(&img)
+    pub fn open(&self, fp: impl AsRef<str>) -> ImgResult<VipsImage> {
+        self.reinterpret(&self.open_raw(fp.as_ref())?)
     }
 
-    pub fn set_color(&self, img: &VipsImage, color: Color) -> Result<VipsImage, ImgError> {
+    pub fn open_raw(&self, fp: impl AsRef<str>) -> ImgResult<VipsImage> {
+        let fp = fp.as_ref();
+        let img = VipsImage::new_from_file(fp).map_err(|e| self.err(e))?;
+        Ok(img)
+    }
+
+    pub fn set_color(&self, img: &VipsImage, color: Color) -> ImgResult<VipsImage> {
         let (r, g, b) = color.scaled_rgb();
         let rgb = VipsImage::new_from_image(img, &[r, g, b]).map_err(|e| self.err(e))?;
         let current_a = ops::extract_band(img, 3).map_err(|e| self.err(e))?;
@@ -113,7 +137,7 @@ impl ImgBackend {
         self.reinterpret(&img)
     }
 
-    pub fn set_opacity(&self, img: &VipsImage, alpha: f64) -> Result<VipsImage, ImgError> {
+    pub fn set_opacity(&self, img: &VipsImage, alpha: f64) -> ImgResult<VipsImage> {
         let current = ops::extract_band(img, 3).map_err(|e| self.err(e))?;
         let a = VipsImage::new_from_image1(&img, alpha).map_err(|e| self.err(e))?;
         let a = ops::multiply(&current, &a).map_err(|e| self.err(e))?;
@@ -123,7 +147,42 @@ impl ImgBackend {
         self.reinterpret(&img)
     }
 
-    pub fn scale(&self, img: &VipsImage, sx: f64, sy: f64) -> Result<VipsImage, ImgError> {
+    /// Crops the image, extracting the specified area.
+    pub fn crop(
+        &self,
+        img: &VipsImage,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        ox: Origin,
+        oy: Origin,
+    ) -> ImgResult<VipsImage> {
+        let ox = ox.apply(w as f64).round() as i32;
+        let oy = oy.apply(h as f64).round() as i32;
+        let out = ops::extract_area(img, x - ox, y - oy, w, h).map_err(|e| self.err(e))?;
+        Ok(out)
+    }
+
+    /// Casts a [`libvips::ops::BandFormat::Uchar`] image to [`libvips::ops::BandFormat::Double`],
+    /// scaling its values from the `[0.0, 1.0]` range to the `[0, 255]` range.
+    pub fn uchar_to_double(&self, img: &VipsImage) -> ImgResult<VipsImage> {
+        let out = ops::cast(img, ops::BandFormat::Double).map_err(|e| self.err(e))?;
+        let const255 = &VipsImage::new_from_image1(&out, 255.0).map_err(|e| self.err(e))?;
+        let out = ops::divide(&out, &const255).map_err(|e| self.err(e))?;
+        Ok(out)
+    }
+
+    /// Casts a [`libvips::ops::BandFormat::Double`] image to [`libvips::ops::BandFormat::Uchar`],
+    /// scaling its values from the `[0, 255]` range to the `[0.0, 1.0]` range.
+    pub fn double_to_uchar(&self, img: &VipsImage) -> ImgResult<VipsImage> {
+        let const255 = &VipsImage::new_from_image1(&img, 255.0).map_err(|e| self.err(e))?;
+        let out = ops::multiply(&img, &const255).map_err(|e| self.err(e))?;
+        let out = ops::cast(&out, ops::BandFormat::Uchar).map_err(|e| self.err(e))?;
+        Ok(out)
+    }
+
+    pub fn scale(&self, img: &VipsImage, sx: f64, sy: f64) -> ImgResult<VipsImage> {
         ops::resize_with_opts(
             &img,
             sx,
@@ -137,7 +196,7 @@ impl ImgBackend {
         img: &VipsImage,
         w: Option<i32>,
         h: Option<i32>,
-    ) -> Result<VipsImage, ImgError> {
+    ) -> ImgResult<VipsImage> {
         let (iw, ih) = (img.get_width() as f64, img.get_height() as f64);
         let (sx, sy) = match (w, h) {
             (Some(rw), Some(rh)) => (rw as f64 / iw, rh as f64 / ih),
@@ -160,16 +219,16 @@ impl ImgBackend {
         w: f64,
         h: f64,
         mode: FitMode,
-    ) -> Result<VipsImage, ImgError> {
+    ) -> ImgResult<VipsImage> {
         let (iw, ih) = (img.get_width() as f64, img.get_height() as f64);
         let aspect_ratio = iw / ih;
         let (sx, sy) = match mode {
             FitMode::Contain | FitMode::Cover => {
                 if (aspect_ratio < 1.0) ^ (mode == FitMode::Contain) {
-                    let s = w as f64 / iw;
+                    let s = w / iw;
                     (s, s)
                 } else {
-                    let s = h as f64 / ih;
+                    let s = h / ih;
                     (s, s)
                 }
             }
@@ -198,7 +257,7 @@ impl ImgBackend {
         Ok((img, dx, dy))
     }
 
-    pub fn stroke(&self, img: &VipsImage, stroke: Stroke) -> Result<VipsImage, ImgError> {
+    pub fn stroke(&self, img: &VipsImage, stroke: Stroke) -> ImgResult<VipsImage> {
         let Stroke { size, color } = stroke;
         let mask = ops::black(size * 2 + 1, size * 2 + 1).map_err(|e| self.err(e))?;
         let mask = ops::add(
@@ -239,6 +298,55 @@ impl ImgBackend {
         Ok(img)
     }
 
+    /// Rounds the four corners of the given image using the given radius.
+    #[cfg(feature = "vips-8-16")]
+    pub fn round_corners(&self, img: &VipsImage, radius: i32) -> ImgResult<VipsImage> {
+        let (w, h) = (img.get_width(), img.get_height());
+        let min_dim = w.min(h);
+        let r = if radius * 2 > min_dim {
+            (min_dim as f64 / 2.0).ceil()
+        } else {
+            radius as f64
+        };
+        let sdf = ops::sdf_with_opts(
+            w,
+            h,
+            ops::SdfShape::RoundedBox,
+            &ops::SdfOptions {
+                a: vec![0.0, 0.0],
+                b: vec![w as f64, h as f64],
+                corners: vec![r, r, r, r],
+                ..Default::default()
+            },
+        )
+        .map_err(|e| self.err(e))?;
+        let const1 = VipsImage::new_from_image1(&sdf, 1.0).map_err(|e| self.err(e))?;
+        let mask = ops::subtract(&const1, &sdf).map_err(|e| self.err(e))?;
+        self.mask_alpha(img, &mask)
+    }
+
+    /// Applies a mask to the given image alpha channel.
+    ///
+    /// `mask` is expected to already be using the double format, in the `[0.0, 1.0]` range.
+    pub fn mask_alpha(&self, img: &VipsImage, mask: &VipsImage) -> ImgResult<VipsImage> {
+        let mask_bands = mask.get_bands();
+        let mask = ops::extract_band(mask, mask_bands - 1).map_err(|e| self.err(e))?;
+        let img_bands = img.get_bands();
+        let img_a = ops::extract_band(img, img_bands - 1).map_err(|e| self.err(e))?;
+        let img_a = self.uchar_to_double(&img_a)?;
+        let out_a = ops::multiply(&img_a, &mask).map_err(|e| self.err(e))?;
+        let out_a = self.double_to_uchar(&out_a)?;
+        if img_bands > 1 {
+            let img_rgb =
+                ops::extract_band_with_opts(img, 0, &ops::ExtractBandOptions { n: img_bands - 1 })
+                    .map_err(|e| self.err(e))?;
+            let out = ops::bandjoin(&mut [img_rgb, out_a]).map_err(|e| self.err(e))?;
+            Ok(out)
+        } else {
+            Ok(out_a)
+        }
+    }
+
     pub fn overlay(
         &self,
         base: &VipsImage,
@@ -248,11 +356,11 @@ impl ImgBackend {
         ox: Origin,
         oy: Origin,
         mode: BlendMode,
-    ) -> Result<VipsImage, ImgError> {
+    ) -> ImgResult<VipsImage> {
         let (bw, bh) = (base.get_width(), base.get_height());
         let (w, h) = (src.get_width() as f64, src.get_height() as f64);
-        let ox = ox.apply(w) as i32;
-        let oy = oy.apply(h) as i32;
+        let ox = ox.apply(w).round() as i32;
+        let oy = oy.apply(h).round() as i32;
         let src = ops::embed(&src, x - ox, y - oy, bw, bh).map_err(|e| self.err(e))?;
         ops::composite2(&base, &src, mode.into()).map_err(|e| self.err(e))
     }
