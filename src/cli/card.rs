@@ -125,11 +125,12 @@ impl<'de> Deserialize<'de> for DynCard {
 
 #[cfg(feature = "diff")]
 impl DiffHash for DynCard {
-    fn diff_hash(&self, state: &mut md5::Md5) {
+    fn diff_hash(&self, state: &mut md5::Md5) -> Result<(), impl std::error::Error> {
         for (k, v) in self.0.iter().sorted_by_key(|pair| pair.0) {
             state.update(k.as_bytes());
             state.update(b":");
             state.update(format!("{v:?}").as_bytes());
         }
+        Ok::<_, std::io::Error>(())
     }
 }

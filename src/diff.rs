@@ -81,24 +81,34 @@ impl DiffVisitor {
     {
         // TODO: check artwork, assets, fonts... ?
         let card = card.as_ref().ok()?;
+        let id = template.identify(card);
         let id_hash = {
-            let id = template.identify(card);
             let mut id_hasher = DefaultHasher::new();
             id.hash(&mut id_hasher);
             id_hasher.finish()
         };
         let new_digest: [u8; 16] = {
             let mut hasher = Md5::new();
-            card.diff_hash(&mut hasher);
+            card.diff_hash(&mut hasher)
+                .inspect_err(|e| {
+                    self.tx.as_ref().map(|tx| {
+                        let _ = tx.send(LogMsg::Warn(0, format!("failed to diff hash {id}: {e}")));
+                    });
+                })
+                .ok()?;
             hasher.finalize().as_slice().try_into().unwrap()
         };
         let mut diff_hasher = self.hasher.write().ok()?;
-        let old_digest = diff_hasher.data.get(&id_hash)?;
-        if old_digest != &new_digest {
+        if diff_hasher
+            .data
+            .get(&id_hash)
+            .map(|digest| digest != &new_digest)
+            .unwrap_or(true)
+        {
             diff_hasher.new_data.insert(id_hash, new_digest);
             Some(true)
         } else {
-            Some(false)
+            Some(self.force)
         }
     }
 }
@@ -112,7 +122,14 @@ where
         self.on_read_internal(template, card).unwrap_or(true)
     }
 
-    fn on_iter_err_r(&self, template: &T, _worker: usize, _i: usize, card: &C, _error: &RuntimeError) {
+    fn on_iter_err_r(
+        &self,
+        template: &T,
+        _worker: usize,
+        _i: usize,
+        card: &C,
+        _error: &RuntimeError,
+    ) {
         let id_hash = {
             let id = template.identify(card);
             let mut id_hasher = DefaultHasher::new();
