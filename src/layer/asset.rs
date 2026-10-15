@@ -24,6 +24,8 @@ pub struct AssetLayer {
     #[cfg_attr(feature = "cli", serde(default))]
     pub r: f64,
     #[cfg_attr(feature = "cli", serde(default))]
+    pub a: f64,
+    #[cfg_attr(feature = "cli", serde(default))]
     pub ox: Origin,
     #[cfg_attr(feature = "cli", serde(default))]
     pub oy: Origin,
@@ -43,6 +45,7 @@ impl AssetLayer {
             w: Default::default(),
             h: Default::default(),
             r: Default::default(),
+            a: 1.0,
             ox: Default::default(),
             oy: Default::default(),
             fit: Default::default(),
@@ -66,6 +69,12 @@ impl AssetLayer {
     #[must_use]
     pub fn with_rotation(mut self, r: impl Into<f64>) -> Self {
         self.r = r.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_opacity(mut self, a: impl Into<f64>) -> Self {
+        self.a = a.into().clamp(0.0, 1.0);
         self
     }
 
@@ -110,6 +119,7 @@ impl Layer for AssetLayer {
         };
         let (asset, ox, oy) = ib.rotate(&asset, self.r, self.ox, self.oy)?;
         let (ox, oy) = (Origin::Absolute(ox), Origin::Absolute(oy));
+        let asset = ib.set_opacity(&asset, self.a)?;
         ib.overlay(&img, &asset, self.x, self.y, ox, oy, self.blend)
     }
 }
