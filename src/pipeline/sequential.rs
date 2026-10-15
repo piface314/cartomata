@@ -5,6 +5,7 @@ use crate::image::ImgBackend;
 use crate::layer::RenderContext;
 use crate::pipeline::{Pipeline, Visitor};
 use crate::template::Template;
+use libvips::VipsApp;
 
 impl<C, T, V> Pipeline<C, T, V>
 where
@@ -15,7 +16,8 @@ where
     pub fn run(self, source_key: T::SourceKey, filter: Option<Predicate>) -> (T, V) {
         let template = self.template;
         let visitor = self.visitor;
-        let result = Self::run_internal(&template, &visitor, source_key, filter);
+        let vips_app = self.vips_app;
+        let result = Self::run_internal(&template, &visitor, vips_app, source_key, filter);
         visitor.on_finish(&template, 0, &result);
         (template, visitor)
     }
@@ -23,6 +25,7 @@ where
     fn run_internal(
         template: &T,
         visitor: &V,
+        vips_app: Option<VipsApp>,
         source_key: T::SourceKey,
         filter: Option<Predicate>,
     ) -> Result<(), RuntimeError> {
@@ -35,7 +38,11 @@ where
             .map_err(RuntimeError::cant_init_decoder)?;
         let font_map = template.fonts();
         let img_map = template.resources();
-        let backend = ImgBackend::new()?;
+        let backend = if let Some(vips_app) = vips_app {
+            ImgBackend::from(vips_app)
+        } else {
+            ImgBackend::new()?
+        };
         let ctx = RenderContext { backend: &backend, font_map, img_map };
         source
             .read(filter)

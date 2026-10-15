@@ -76,7 +76,11 @@ where
         let template = Arc::new(RwLock::new(self.template));
         let visitor = self.visitor;
         let queue = Arc::new(CardQueue::<C>::new(batch));
-        let img_backend = Arc::new(RwLock::new(ImgBackend::new()?));
+        let img_backend = Arc::new(RwLock::new(if let Some(vips_app) = self.vips_app {
+            ImgBackend::from(vips_app)
+        } else {
+            ImgBackend::new()?
+        }));
 
         let handle = {
             let template = template.clone();

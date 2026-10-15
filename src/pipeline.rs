@@ -6,6 +6,7 @@ use crate::error::RuntimeError;
 use crate::logs::{self, LogMsg, ProgressBar};
 pub use crate::pipeline::parallel::ParallelismOptions;
 use crate::template::Template;
+use libvips::VipsApp;
 use std::error::Error;
 use std::marker::PhantomData;
 use std::sync::mpsc::Sender;
@@ -14,12 +15,18 @@ use std::thread::JoinHandle;
 pub struct Pipeline<C: Card, T: Template<C>, V: Visitor<C, T> = ()> {
     pub(crate) template: T,
     pub(crate) visitor: V,
+    vips_app: Option<VipsApp>,
     _card: PhantomData<C>,
 }
 
 impl<C: Card, T: Template<C>, V: Visitor<C, T>> Pipeline<C, T, V> {
     pub fn new(template: T, visitor: V) -> Self {
-        Self { template, visitor, _card: PhantomData }
+        Self { template, visitor, vips_app: None, _card: PhantomData }
+    }
+
+    pub fn with_vips(mut self, vips_app: VipsApp) -> Self {
+        self.vips_app = Some(vips_app);
+        self
     }
 }
 
@@ -51,7 +58,8 @@ pub trait Visitor<C: Card, T: Template<C>> {
         self.on_iter_err_r(template, worker, i, &card, &error);
     }
 
-    fn on_iter_err_r(&self, template: &T, worker: usize, i: usize, card: &C, error: &RuntimeError) {}
+    fn on_iter_err_r(&self, template: &T, worker: usize, i: usize, card: &C, error: &RuntimeError) {
+    }
 
     fn on_finish(&self, template: &T, worker: usize, result: &Result<(), RuntimeError>) {}
 }
