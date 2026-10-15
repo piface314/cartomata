@@ -63,11 +63,7 @@ macro_rules! visit_int {
         where
             E: de::Error,
         {
-            match v {
-                1 => Ok(Self::Value::Relative(1.0)),
-                -1 => Ok(Self::Value::Relative(-1.0)),
-                _ => Ok(Self::Value::Absolute(v as f64)),
-            }
+            Ok(Self::Value::Absolute(v as f64))
         }
     };
 }
@@ -78,7 +74,7 @@ macro_rules! visit_float {
         where
             E: de::Error,
         {
-            Ok(Self::Value::Relative(v as f64))
+            Ok(Self::Value::Absolute(v as f64))
         }
     };
 }
@@ -132,13 +128,7 @@ impl<'de> de::Visitor<'de> for OriginVisitor {
         match lex.next().transpose().map_err(|_| e!())? {
             Some(OriginToken::Px) => Ok(Origin::Absolute(v)),
             Some(OriginToken::Percent) => Ok(Origin::Relative(v / 100.0)),
-            None => {
-                if v.abs() <= 1.0 {
-                    Ok(Origin::Relative(v))
-                } else {
-                    Ok(Origin::Absolute(v))
-                }
-            }
+            None => Ok(Origin::Absolute(v)),
             _ => Err(e!()),
         }
     }
