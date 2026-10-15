@@ -72,8 +72,8 @@ pub struct Cli {
 
     #[cfg(feature = "diff")]
     /// If set, processes all cards, not only the ones that changed.
-    #[arg(short, long)]
-    pub all: bool,
+    #[arg(long)]
+    pub force: bool,
 }
 
 impl Cli {
@@ -112,12 +112,12 @@ impl Cli {
         let v_handle = if cli.workers.get() > 1 {
             let opt = ParallelismOptions::new(cli.workers).with_batch_size(cli.batch);
             let (visitor, handle) =
-                Self::create_visitor(&source_key, &cli.output, opt.n_workers())?;
+                Self::create_visitor(&source_key, &cli.output, cli.force, opt.n_workers())?;
             let pipeline = Pipeline::new(template, visitor);
             pipeline.run_parallel(source_key, filter, opt)?.join()?;
             handle
         } else {
-            let (visitor, handle) = Self::create_visitor(&source_key, &cli.output, 0)?;
+            let (visitor, handle) = Self::create_visitor(&source_key, &cli.output, cli.force, 0)?;
             let pipeline = Pipeline::new(template, visitor);
             pipeline.run(source_key, filter);
             handle
@@ -132,6 +132,7 @@ impl Cli {
     fn create_visitor(
         _source_key: &(Option<SourceType>, PathBuf),
         _output: &Option<PathBuf>,
+        _all: bool,
         n_workers: usize,
     ) -> std::io::Result<(
         impl Visitor<DynCard, DynTemplate> + Clone,
@@ -144,6 +145,7 @@ impl Cli {
     fn create_visitor(
         source_key: &(Option<SourceType>, PathBuf),
         output: &Option<PathBuf>,
+        all: bool,
         n_workers: usize,
     ) -> std::io::Result<(
         impl Visitor<DynCard, DynTemplate> + Clone,
@@ -170,7 +172,7 @@ impl Cli {
         std::fs::create_dir_all(&output)?;
         output.push(diff_name);
         let (log_visitor, handle) = LogVisitor::new(n_workers);
-        let diff_visitor = DiffVisitor::new(Some(log_visitor.tx()), output);
+        let diff_visitor = DiffVisitor::new(Some(log_visitor.tx()), output).with_force(all);
         let visitor = log_visitor.chain(diff_visitor);
         Ok((visitor, handle))
     }

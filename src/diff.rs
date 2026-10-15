@@ -14,13 +14,14 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 
 pub trait DiffHash {
-    fn diff_hash(&self, state: &mut Md5);
+    fn diff_hash(&self, state: &mut Md5) -> Result<(), impl Error>;
 }
 
 #[derive(Clone)]
 pub struct DiffVisitor {
     tx: Option<Sender<LogMsg>>,
     hasher: Arc<RwLock<DiffHasher>>,
+    force: bool,
 }
 
 struct DiffHasher {
@@ -71,7 +72,12 @@ impl DiffVisitor {
         let hasher = DiffHasher::read(fp);
         let _ = tx.as_ref().map(|tx| tx.send(LogMsg::Info(0, msg)));
         let hasher = Arc::new(RwLock::new(hasher));
-        Self { tx, hasher }
+        Self { tx, hasher, force: false }
+    }
+
+    pub fn with_force(mut self, force: bool) -> Self {
+        self.force = force;
+        self
     }
 
     fn on_read_internal<C, T>(&self, template: &T, card: &Result<C, Box<dyn Error>>) -> Option<bool>
