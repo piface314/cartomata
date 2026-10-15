@@ -41,4 +41,8 @@ impl<'a> LayerStack<'a> {
         }
         Ok(img)
     }
+
+    pub fn push(&mut self, layer: impl Layer + 'a) {
+        self.0.push(Box::new(layer));
+    }
 }

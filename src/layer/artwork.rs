@@ -39,6 +39,55 @@ fn default_origin() -> Origin {
     Origin::Relative(0.5)
 }
 
+impl ArtworkLayer {
+    pub fn new(id: impl Into<String>, x: impl Into<i32>, y: impl Into<i32>, w: impl Into<f64>, h: impl Into<f64>) -> Self {
+        Self {
+            id: id.into(),
+            x: x.into(),
+            y: y.into(),
+            w: w.into(),
+            h: h.into(),
+            r: Default::default(),
+            ox: Origin::Relative(0.5),
+            oy: Origin::Relative(0.5),
+            fit: Default::default(),
+            blend: Default::default(),
+            stroke: Default::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_rotation(mut self, r: impl Into<f64>) -> Self {
+        self.r = r.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_origin(mut self, ox: Origin, oy: Origin) -> Self {
+        self.ox = ox;
+        self.oy = oy;
+        self
+    }
+
+    #[must_use]
+    pub fn with_fit_mode(mut self, fit: FitMode) -> Self {
+        self.fit = fit;
+        self
+    }
+
+    #[must_use]
+    pub fn with_blend_mode(mut self, blend: BlendMode) -> Self {
+        self.blend = blend;
+        self
+    }
+
+    #[must_use]
+    pub fn with_stroke(mut self, stroke: Stroke) -> Self {
+        self.stroke = Some(stroke);
+        self
+    }
+}
+
 impl Layer for ArtworkLayer {
     fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage, ImgError> {
         let img_map = ctx.img_map;

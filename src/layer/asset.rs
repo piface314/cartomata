@@ -1,8 +1,8 @@
 //! Represents an image layer loaded from the template assets
 
+use crate::error::ImgError;
 use crate::image::{BlendMode, FitMode, Origin, Stroke};
 use crate::layer::{Layer, RenderContext};
-use crate::error::ImgError;
 
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
@@ -32,6 +32,67 @@ pub struct AssetLayer {
     #[cfg_attr(feature = "cli", serde(default))]
     pub blend: BlendMode,
     pub stroke: Option<Stroke>,
+}
+
+impl AssetLayer {
+    pub fn new(path: impl Into<String>, x: impl Into<i32>, y: impl Into<i32>) -> Self {
+        Self {
+            path: path.into(),
+            x: x.into(),
+            y: y.into(),
+            w: Default::default(),
+            h: Default::default(),
+            r: Default::default(),
+            ox: Default::default(),
+            oy: Default::default(),
+            fit: Default::default(),
+            blend: Default::default(),
+            stroke: Default::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_width(mut self, w: impl Into<i32>) -> Self {
+        self.w = Some(w.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_height(mut self, h: impl Into<i32>) -> Self {
+        self.h = Some(h.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_rotation(mut self, r: impl Into<f64>) -> Self {
+        self.r = r.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_origin(mut self, ox: Origin, oy: Origin) -> Self {
+        self.ox = ox;
+        self.oy = oy;
+        self
+    }
+
+    #[must_use]
+    pub fn with_fit_mode(mut self, fit: FitMode) -> Self {
+        self.fit = fit;
+        self
+    }
+
+    #[must_use]
+    pub fn with_blend_mode(mut self, blend: BlendMode) -> Self {
+        self.blend = blend;
+        self
+    }
+
+    #[must_use]
+    pub fn with_stroke(mut self, stroke: Stroke) -> Self {
+        self.stroke = Some(stroke);
+        self
+    }
 }
 
 impl Layer for AssetLayer {
