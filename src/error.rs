@@ -154,6 +154,12 @@ impl From<MarkupParseError> for ImgError {
     }
 }
 
+impl From<libvips::error::Error> for ImgError {
+    fn from(source: libvips::error::Error) -> Self {
+        ImgError::Vips { source, details: None }
+    }
+}
+
 #[derive(Debug, Clone, Error)]
 pub enum PredicateError {
     #[error("invalid operand for `{operator}`: expected {expected}, got {got}")]
