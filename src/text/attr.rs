@@ -585,7 +585,7 @@ impl From<pango::Gravity> for Gravity {
 }
 
 into_pango! {
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
     #[derive(Deserialize, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum GravityHint {
@@ -596,7 +596,7 @@ into_pango! {
 }
 
 into_pango! {
-    #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Default, Hash)]
     #[derive(Deserialize, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum Stretch {
@@ -613,7 +613,7 @@ into_pango! {
 }
 
 into_pango! {
-    #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Default, Hash)]
     #[derive(Deserialize, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum TextTransform {
