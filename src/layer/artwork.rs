@@ -1,8 +1,8 @@
 //! Represents an image layer loaded from artwork folder.
 
+use crate::error::ImgError;
 use crate::image::{BlendMode, FitMode, Origin, Stroke};
 use crate::layer::{Layer, RenderContext};
-use crate::error::ImgError;
 
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
@@ -40,7 +40,13 @@ fn default_origin() -> Origin {
 }
 
 impl ArtworkLayer {
-    pub fn new(id: impl Into<String>, x: impl Into<i32>, y: impl Into<i32>, w: impl Into<f64>, h: impl Into<f64>) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        x: impl Into<i32>,
+        y: impl Into<i32>,
+        w: impl Into<f64>,
+        h: impl Into<f64>,
+    ) -> Self {
         Self {
             id: id.into(),
             x: x.into(),
@@ -98,18 +104,18 @@ impl Layer for ArtworkLayer {
         let artwork = ib.open(path.to_string_lossy())?;
         let artwork = ib.scale_to_fit(&artwork, self.w, self.h, self.fit)?;
         let artwork = if let Some(stroke) = self.stroke {
-            ib.stroke(&artwork, stroke)?
+            ib.stroke_checked(artwork, stroke)?
         } else {
             artwork
         };
-        let (artwork, dx, dy) = ib.rotate(&artwork, self.r, self.ox, self.oy)?;
+        let (artwork, dx, dy) = ib.rotate_checked(artwork, self.r, self.ox, self.oy)?;
         let ox = Origin::Absolute(-self.ox.apply(self.w));
         let oy = Origin::Absolute(-self.oy.apply(self.h));
         ib.overlay(
             &img,
             &artwork,
-            self.x - dx as i32,
-            self.y - dy as i32,
+            (self.x as f64 - dx).round() as i32,
+            (self.y as f64 - dy).round() as i32,
             ox,
             oy,
             self.blend,

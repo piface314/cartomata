@@ -125,30 +125,43 @@ impl ImgBackend {
     pub fn set_color(&self, img: &VipsImage, color: Color) -> ImgResult<VipsImage> {
         let (r, g, b) = color.scaled_rgb();
         let rgb = VipsImage::new_from_image(img, &[r, g, b]).map_err(|e| self.err(e))?;
-        let current_a = ops::extract_band(img, 3).map_err(|e| self.err(e))?;
-        let a = match color.a {
-            Some(alpha) => {
-                let a = VipsImage::new_from_image1(img, alpha).map_err(|e| self.err(e))?;
-                ops::multiply(&current_a, &a).map_err(|e| self.err(e))?
-            }
-            None => current_a,
+        let img_a = ops::extract_band(&img, 3).map_err(|e| self.err(e))?;
+        let out_a = match color.a {
+            Some(a) => self.set_opacity_checked(img_a, a)?,
+            None => img_a,
         };
-        let img = ops::bandjoin(&mut [rgb, a]).map_err(|e| self.err(e))?;
+        let img = ops::bandjoin(&mut [rgb, out_a]).map_err(|e| self.err(e))?;
         self.reinterpret(&img)
     }
 
+    /// Multiplies the image opacity by the given value.
     pub fn set_opacity(&self, img: &VipsImage, alpha: f64) -> ImgResult<VipsImage> {
         let n_bands = img.get_bands();
         let img_a = ops::extract_band(img, n_bands - 1).map_err(|e| self.err(e))?;
         let img_a = self.uchar_to_double(&img_a)?;
-        let new_a = VipsImage::new_from_image1(&img, alpha * 255.0).map_err(|e| self.err(e))?;
-        let new_a = self.uchar_to_double(&new_a)?;
+        let new_a = VipsImage::new_from_image1(&img_a, alpha).map_err(|e| self.err(e))?;
         let out_a = ops::multiply(&img_a, &new_a).map_err(|e| self.err(e))?;
         let out_a = self.double_to_uchar(&out_a)?;
-        let rgb = ops::extract_band_with_opts(img, 0, &ops::ExtractBandOptions { n: n_bands - 1 })
-            .map_err(|e| self.err(e))?;
-        let img = ops::bandjoin(&mut [rgb, out_a]).map_err(|e| self.err(e))?;
-        self.reinterpret(&img)
+        if n_bands > 1 {
+            let rgb =
+                ops::extract_band_with_opts(img, 0, &ops::ExtractBandOptions { n: n_bands - 1 })
+                    .map_err(|e| self.err(e))?;
+            let img = ops::bandjoin(&mut [rgb, out_a]).map_err(|e| self.err(e))?;
+            self.reinterpret(&img)
+        } else {
+            Ok(out_a)
+        }
+    }
+
+    /// Multiplies the image opacity by the given value.
+    /// 
+    /// If alpha is `1.0`, the image is returned unchanged.
+    pub fn set_opacity_checked(&self, img: VipsImage, alpha: f64) -> ImgResult<VipsImage> {
+        if alpha.abs() - 1.0 < f64::EPSILON {
+            Ok(img)
+        } else {
+            self.set_opacity(&img, alpha)
+        }
     }
 
     /// Crops the image, extracting the specified area.
@@ -162,9 +175,12 @@ impl ImgBackend {
         ox: Origin,
         oy: Origin,
     ) -> ImgResult<VipsImage> {
-        let ox = ox.apply(w as f64).round() as i32;
-        let oy = oy.apply(h as f64).round() as i32;
-        let out = ops::extract_area(img, x - ox, y - oy, w, h).map_err(|e| self.err(e))?;
+        let (ox, oy) = (ox.apply(w as f64).round(), oy.apply(h as f64).round());
+        let (x, y) = (
+            (x as f64 - ox).round() as i32,
+            (y as f64 - oy).round() as i32,
+        );
+        let out = ops::extract_area(img, x, y, w, h).map_err(|e| self.err(e))?;
         Ok(out)
     }
 
@@ -186,6 +202,7 @@ impl ImgBackend {
         Ok(out)
     }
 
+    /// Scales the image by the given horizontal and vertical factors.
     pub fn scale(&self, img: &VipsImage, sx: f64, sy: f64) -> ImgResult<VipsImage> {
         ops::resize_with_opts(
             &img,
@@ -195,6 +212,18 @@ impl ImgBackend {
         .map_err(|e| self.err(e))
     }
 
+    /// Scales the image by the given horizontal and vertical factors.
+    /// 
+    /// If both `sx` and `sy` are `1.0`, the image is returned unchanged.
+    pub fn scale_checked(&self, img: VipsImage, sx: f64, sy: f64) -> ImgResult<VipsImage> {
+        if sx.abs() - 1.0 < f64::EPSILON && sy.abs() - 1.0 < f64::EPSILON {
+            Ok(img)
+        } else {
+            self.scale(&img, sx, sy)
+        }
+    }
+
+    /// Scales the image to the given size.
     pub fn scale_to(
         &self,
         img: &VipsImage,
@@ -217,6 +246,23 @@ impl ImgBackend {
         self.scale(img, sx, sy)
     }
 
+    /// Scales the image to the given size.
+    /// 
+    /// If both width and height are [`None`], the image is returned unchanged.
+    pub fn scale_to_checked(
+        &self,
+        img: VipsImage,
+        w: Option<i32>,
+        h: Option<i32>,
+    ) -> ImgResult<VipsImage> {
+        if w.is_none() && h.is_none() {
+            Ok(img)
+        } else {
+            self.scale_to(&img, w, h)
+        }
+    }
+
+    /// Scales the image so that it fits inside the given area, according to the [`FitMode`].
     pub fn scale_to_fit(
         &self,
         img: &VipsImage,
@@ -241,6 +287,8 @@ impl ImgBackend {
         self.scale(img, sx, sy)
     }
 
+    /// Rotates the image around the given origin point.
+    /// The horizontal and vetical displacements are also returned.
     pub fn rotate(
         &self,
         img: &VipsImage,
@@ -261,6 +309,28 @@ impl ImgBackend {
         Ok((img, dx, dy))
     }
 
+    /// Rotates the image around the given origin point.
+    /// The horizontal and vetical displacements are also returned.
+    /// 
+    /// If `deg` is zero, the image is returned unchanged.
+    pub fn rotate_checked(
+        &self,
+        img: VipsImage,
+        deg: f64,
+        ox: Origin,
+        oy: Origin,
+    ) -> Result<(VipsImage, f64, f64), ImgError> {
+        if deg < f64::EPSILON {
+            let (w, h) = (img.get_width() as f64, img.get_height() as f64);
+            let ox = ox.apply(w);
+            let oy = oy.apply(h);
+            Ok((img, ox, oy))
+        } else {
+            self.rotate(&img, deg, ox, oy)
+        }
+    }
+
+    /// Draws a stroke around the visible edges of the image.
     pub fn stroke(&self, img: &VipsImage, stroke: Stroke) -> ImgResult<VipsImage> {
         let Stroke { size, color } = stroke;
         let mask = ops::black(size * 2 + 1, size * 2 + 1).map_err(|e| self.err(e))?;
@@ -302,6 +372,17 @@ impl ImgBackend {
         Ok(img)
     }
 
+    /// Draws a stroke around the visible edges of the image.
+    /// 
+    /// If the stroke size is zero, the image is returned unchanged.
+    pub fn stroke_checked(&self, img: VipsImage, stroke: Stroke) -> ImgResult<VipsImage> {
+        if stroke.size == 0 {
+            Ok(img)
+        } else {
+            self.stroke(&img, stroke)
+        }
+    }
+
     /// Rounds the four corners of the given image using the given radius.
     #[cfg(feature = "vips-8-16")]
     pub fn round_corners(&self, img: &VipsImage, radius: i32) -> ImgResult<VipsImage> {
@@ -327,6 +408,18 @@ impl ImgBackend {
         let const1 = VipsImage::new_from_image1(&sdf, 1.0).map_err(|e| self.err(e))?;
         let mask = ops::subtract(&const1, &sdf).map_err(|e| self.err(e))?;
         self.mask_alpha(img, &mask)
+    }
+
+    /// Rounds the four corners of the given image using the given radius.
+    /// 
+    /// If the radius is zero, the image is returned unchanged.
+    #[cfg(feature = "vips-8-16")]
+    pub fn round_corners_checked(&self, img: VipsImage, radius: i32) -> ImgResult<VipsImage> {
+        if radius == 0 {
+            Ok(img)
+        } else {
+            self.round_corners(&img, radius)
+        }
     }
 
     /// Applies a mask to the given image alpha channel.

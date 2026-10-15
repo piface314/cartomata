@@ -336,7 +336,7 @@ impl ImgAttr {
         let img = ib.open(fp).ok()?;
         let img = rotate_img(ib, img, self.gravity.unwrap_or(Gravity::South))?;
         let metrics = get_metrics(fm, ctx, self.font.as_ref()?, self.size?)?;
-        let img = resize_img(ib, &img, &metrics, self.width, self.height, self.scale)?;
+        let img = resize_img(ib, img, &metrics, self.width, self.height, self.scale)?;
         let img = recolor_img(ib, img, self.color, self.alpha)?;
         push_img_rect(attrs, i, j, &img, &metrics);
         Some(img)
@@ -368,7 +368,7 @@ fn rotate_img(ib: &ImgBackend, img: VipsImage, gravity: Gravity) -> Option<VipsI
 
 fn resize_img(
     ib: &ImgBackend,
-    img: &VipsImage,
+    img: VipsImage,
     metrics: &pango::FontMetrics,
     width: Option<i32>,
     height: Option<i32>,
@@ -377,12 +377,12 @@ fn resize_img(
     match (width, height, scale) {
         (None, None, Some(Scale(s))) => ib
             .scale_to(
-                img,
+                &img,
                 None,
                 Some((s * (metrics.height() / pango::SCALE) as f64) as i32),
             )
             .ok(),
-        (width, height, _) => ib.scale_to(img, width, height).ok(),
+        (width, height, _) => ib.scale_to_checked(img, width, height).ok(),
     }
 }
 
@@ -397,7 +397,7 @@ fn recolor_img(
             ib.set_color(&img, Color::from_rgba(r, g, b, a)).ok()
         }
         (Some(color), None) => ib.set_color(&img, color).ok(),
-        (_, Some(a)) => ib.set_opacity(&img, a).ok(),
+        (_, Some(a)) => ib.set_opacity_checked(img, a).ok(),
         _ => Some(img),
     }
 }

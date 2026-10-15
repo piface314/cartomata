@@ -93,12 +93,12 @@ impl Layer for TextLayer {
             markup, &img_map, &font_map, font, self.size, self.color, &params,
         )?;
         let (text_img, dh) = if let Some(stroke) = self.stroke {
-            (ib.stroke(&text_img, stroke)?, stroke.size)
+            (ib.stroke_checked(text_img, stroke)?, stroke.size)
         } else {
             (text_img, 0)
         };
         let h = layout.baseline() + dh;
-        let (text_img, ox, oy) = ib.rotate(&text_img, self.r, self.ox, self.oy.into_origin(h))?;
+        let (text_img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, self.oy.into_origin(h))?;
         let (ox, oy) = (Origin::Absolute(ox), Origin::Absolute(oy));
         ib.overlay(&img, &text_img, self.x, self.y, ox, oy, self.blend)
     }

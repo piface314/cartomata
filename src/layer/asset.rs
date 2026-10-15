@@ -113,11 +113,11 @@ impl Layer for AssetLayer {
         let asset = ib.open(&path.to_string_lossy())?;
         let asset = ib.scale_to(&asset, self.w, self.h)?;
         let asset = if let Some(stroke) = self.stroke {
-            ib.stroke(&asset, stroke)?
+            ib.stroke_checked(asset, stroke)?
         } else {
             asset
         };
-        let (asset, ox, oy) = ib.rotate(&asset, self.r, self.ox, self.oy)?;
+        let (asset, ox, oy) = ib.rotate_checked(asset, self.r, self.ox, self.oy)?;
         let (ox, oy) = (Origin::Absolute(ox), Origin::Absolute(oy));
         let asset = ib.set_opacity(&asset, self.a)?;
         ib.overlay(&img, &asset, self.x, self.y, ox, oy, self.blend)

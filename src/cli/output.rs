@@ -56,8 +56,8 @@ impl OutputMap {
         .to_string()
     }
 
-    pub fn write(&self, card: &DynCard, img: &VipsImage, ib: &ImgBackend) -> Result<(), ImgError> {
-        let img = ib.scale_to(img, self.resize.width, self.resize.height)?;
+    pub fn write(&self, card: &DynCard, img: VipsImage, ib: &ImgBackend) -> Result<(), ImgError> {
+        let img = ib.scale_to_checked(img, self.resize.width, self.resize.height)?;
         let mut path = self.prefix.clone();
         path.push(self.identify(card));
         path.set_extension(self.ext.clone());

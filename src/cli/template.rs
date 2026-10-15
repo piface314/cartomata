@@ -115,7 +115,7 @@ impl Template<DynCard> for DynTemplate {
     }
 
     fn output(&self, card: &DynCard, img: VipsImage, ib: &ImgBackend) -> Result<(), impl Error> {
-        self.output_map.write(card, &img, ib)
+        self.output_map.write(card, img, ib)
     }
 }
 
