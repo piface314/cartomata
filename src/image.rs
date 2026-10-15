@@ -138,12 +138,16 @@ impl ImgBackend {
     }
 
     pub fn set_opacity(&self, img: &VipsImage, alpha: f64) -> ImgResult<VipsImage> {
-        let current = ops::extract_band(img, 3).map_err(|e| self.err(e))?;
-        let a = VipsImage::new_from_image1(&img, alpha).map_err(|e| self.err(e))?;
-        let a = ops::multiply(&current, &a).map_err(|e| self.err(e))?;
-        let rgb = ops::extract_band_with_opts(img, 0, &ops::ExtractBandOptions { n: 3 })
+        let n_bands = img.get_bands();
+        let img_a = ops::extract_band(img, n_bands - 1).map_err(|e| self.err(e))?;
+        let img_a = self.uchar_to_double(&img_a)?;
+        let new_a = VipsImage::new_from_image1(&img, alpha * 255.0).map_err(|e| self.err(e))?;
+        let new_a = self.uchar_to_double(&new_a)?;
+        let out_a = ops::multiply(&img_a, &new_a).map_err(|e| self.err(e))?;
+        let out_a = self.double_to_uchar(&out_a)?;
+        let rgb = ops::extract_band_with_opts(img, 0, &ops::ExtractBandOptions { n: n_bands - 1 })
             .map_err(|e| self.err(e))?;
-        let img = ops::bandjoin(&mut [rgb, a]).map_err(|e| self.err(e))?;
+        let img = ops::bandjoin(&mut [rgb, out_a]).map_err(|e| self.err(e))?;
         self.reinterpret(&img)
     }
 
