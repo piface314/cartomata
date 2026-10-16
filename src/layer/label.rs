@@ -44,17 +44,122 @@ pub struct LabelLayer {
     pub language: Option<String>,
 }
 
-#[cfg(feature = "cli")]
 const fn default_color() -> Color {
     Color::BLACK
 }
 
-#[cfg(feature = "cli")]
 const fn default_text_origin() -> TextOrigin {
     TextOrigin::Baseline
 }
 
 impl LabelLayer {
+    pub fn new(
+        text: impl Into<String>,
+        x: impl Into<i32>,
+        y: impl Into<i32>,
+        size: impl Into<f64>,
+    ) -> Self {
+        Self {
+            text: text.into(),
+            x: x.into(),
+            y: y.into(),
+            size: size.into(),
+            font: Default::default(),
+            color: default_color(),
+            w: Default::default(),
+            r: 0.0,
+            ox: Default::default(),
+            oy: default_text_origin(),
+            blend: Default::default(),
+            stroke: Default::default(),
+            auto_dir: Default::default(),
+            dpi: Default::default(),
+            direction: Default::default(),
+            gravity: Default::default(),
+            gravity_hint: Default::default(),
+            language: Default::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_font(mut self, font: impl Into<String>) -> Self {
+        self.font = Some(font.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_color(mut self, color: Color) -> Self {
+        self.color = color;
+        self
+    }
+
+    #[must_use]
+    pub fn with_width(mut self, w: impl Into<i32>) -> Self {
+        self.w = Some(w.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_rotation(mut self, r: impl Into<f64>) -> Self {
+        self.r = r.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_origin(mut self, ox: Origin, oy: TextOrigin) -> Self {
+        self.ox = ox;
+        self.oy = oy;
+        self
+    }
+
+    #[must_use]
+    pub fn with_blend_mode(mut self, blend: BlendMode) -> Self {
+        self.blend = blend;
+        self
+    }
+
+    #[must_use]
+    pub fn with_stroke(mut self, stroke: Stroke) -> Self {
+        self.stroke = Some(stroke);
+        self
+    }
+
+    #[must_use]
+    pub fn with_auto_dir(mut self, auto_dir: bool) -> Self {
+        self.auto_dir = Some(auto_dir);
+        self
+    }
+
+    #[must_use]
+    pub fn with_dpi(mut self, dpi: impl Into<f64>) -> Self {
+        self.dpi = Some(dpi.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_direction(mut self, direction: Direction) -> Self {
+        self.direction = Some(direction);
+        self
+    }
+
+    #[must_use]
+    pub fn with_gravity(mut self, gravity: Gravity) -> Self {
+        self.gravity = Some(gravity);
+        self
+    }
+
+    #[must_use]
+    pub fn with_gravity_hint(mut self, gravity_hint: GravityHint) -> Self {
+        self.gravity_hint = Some(gravity_hint);
+        self
+    }
+
+    #[must_use]
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        self.language = Some(language.into());
+        self
+    }
+
     fn layout_params(&'_ self) -> Vec<LayoutAttr<'_>> {
         let mut params = Vec::new();
         self.auto_dir.map(|x| params.push(LayoutAttr::AutoDir(x)));
@@ -104,7 +209,8 @@ impl Layer for LabelLayer {
             (text_img, 0)
         };
         let h = layout.baseline() + dh;
-        let (text_img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, self.oy.into_origin(h))?;
+        let (text_img, ox, oy) =
+            ib.rotate_checked(text_img, self.r, self.ox, self.oy.into_origin(h))?;
         let (ox, oy) = (Origin::Absolute(ox), Origin::Absolute(oy));
         ib.overlay(&img, &text_img, self.x, self.y, ox, oy, self.blend)
     }

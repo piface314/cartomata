@@ -42,7 +42,7 @@ impl FontMap {
 
     pub fn get_desc_pt(&self, key: &str, size: f64) -> Option<pango::FontDescription> {
         self.get(key)
-            .map(|name| pango::FontDescription::from_string(&format!("{} {size:.2}", name)))
+            .map(|name| pango::FontDescription::from_string(&format!("{name} {size:.2}")))
     }
 
     pub fn get_desc_abs(&self, key: &str, size: i32) -> Option<pango::FontDescription> {
