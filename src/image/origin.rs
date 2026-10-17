@@ -45,6 +45,14 @@ impl Origin {
             Self::Relative(a) => a * x,
         }
     }
+
+    pub fn half() -> Self {
+        Self::Relative(0.5)
+    }
+
+    pub fn full() -> Self {
+        Self::Relative(1.0)
+    }
 }
 
 impl TextOrigin {
