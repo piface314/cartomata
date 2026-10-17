@@ -8,8 +8,8 @@ mod origin;
 mod stroke;
 
 use crate::error::{ImgError, TextError};
-pub use crate::image::blur::Blur;
 pub use crate::image::blend::BlendMode;
+pub use crate::image::blur::Blur;
 pub use crate::image::color::Color;
 pub use crate::image::map::ImageMap;
 pub use crate::image::origin::{Origin, TextOrigin};
@@ -377,13 +377,28 @@ impl ImgBackend {
     /// Applies gaussian blur to the image.
     pub fn blur(&self, img: &VipsImage, sigma: f64) -> ImgResult<(VipsImage, f64, f64)> {
         let (w, h) = (img.get_width() as f64, img.get_height() as f64);
-        let out = ops::gaussblur(img, sigma).map_err(|e| self.err(e))?;
+        let base = self.create(
+            &Color::CLEAR,
+            (w * (1.0 + sigma)).round() as i32,
+            (h * (1.0 + sigma)).round() as i32,
+        )?;
+        let (bw, bh) = (base.get_width() as f64, base.get_height() as f64);
+        let out = self.overlay(
+            &base,
+            &img,
+            ((bw - w) / 2.0).round() as i32,
+            ((bh - h) / 2.0).round() as i32,
+            BlendMode::Over,
+        )?;
+        let out = ops::premultiply(&out).map_err(|e| self.err(e))?;
+        let out = ops::gaussblur(&out, sigma).map_err(|e| self.err(e))?;
+        let out = ops::unpremultiply(&out).map_err(|e| self.err(e))?;
         let (tw, th) = (out.get_width() as f64, out.get_height() as f64);
         Ok((out, (tw - w) / 2.0, (th - h) / 2.0))
     }
 
     /// Applies gaussian blur to the image.
-    /// 
+    ///
     /// If `sigma` is zero, the image is returned unchanged.
     pub fn blur_checked(&self, img: VipsImage, sigma: f64) -> ImgResult<(VipsImage, f64, f64)> {
         if sigma.abs() < f64::EPSILON {
