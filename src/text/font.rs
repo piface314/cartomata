@@ -1,7 +1,7 @@
 //! Management of font files and configuration
 
 use crate::error::{FontMapError, FontMapInitError};
-use fontconfig::{Fontconfig, Pattern};
+use fontconfig::{Fontconfig, Pattern, FC_FAMILY, FC_STYLE};
 use fontconfig_sys::fontconfig as sys;
 use std::path::{Path, PathBuf};
 use std::{collections::HashMap, ffi::CString};
@@ -107,11 +107,15 @@ impl FontMap {
         if status == 0 {
             Err(FontMapError::file_load(&key, &path))
         } else {
-            let name = pat
-                .font_match()
-                .name()
-                .ok_or_else(|| FontMapError::unnamed(&key))?
-                .to_string();
+            let name = {
+                let matched = pat.font_match();
+                let family = matched.get_string(FC_FAMILY.as_cstr());
+                let style = matched.get_string(FC_STYLE.as_cstr());
+                match (family, style) {
+                    (Some(family), Some(style)) => Ok(format!("{family}, {style}")),
+                    _ => Err(FontMapError::unnamed(&key)),
+                }
+            }?;
             drop(pat);
             self.loaded.insert(key, name);
             Ok(())
