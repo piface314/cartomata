@@ -1,7 +1,7 @@
 //! Represents an image layer loaded from the template assets
 
 use crate::error::ImgError;
-use crate::image::{FitMode, Origin};
+use crate::image::{FitMode, Unit};
 use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 
 #[cfg(feature = "cli")]
@@ -26,9 +26,9 @@ pub struct AssetLayer {
     #[cfg_attr(feature = "cli", serde(default))]
     pub a: f64,
     #[cfg_attr(feature = "cli", serde(default))]
-    pub ox: Origin,
+    pub ox: Unit,
     #[cfg_attr(feature = "cli", serde(default))]
-    pub oy: Origin,
+    pub oy: Unit,
     #[cfg_attr(feature = "cli", serde(default))]
     pub fit: FitMode,
     #[cfg_attr(feature = "cli", serde(skip))]
@@ -77,7 +77,7 @@ impl AssetLayer {
     }
 
     #[must_use]
-    pub fn with_origin(mut self, ox: Origin, oy: Origin) -> Self {
+    pub fn with_origin(mut self, ox: Unit, oy: Unit) -> Self {
         self.ox = ox;
         self.oy = oy;
         self

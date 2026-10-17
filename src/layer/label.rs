@@ -2,7 +2,7 @@
 //! or multiline text areas.
 
 use crate::error::ImgError;
-use crate::image::{Color, ImgBackend, Origin, TextOrigin};
+use crate::image::{Color, ImgBackend, Unit, TextUnit};
 use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 use crate::text::attr::{Direction, Gravity, GravityHint, LayoutAttr};
 use crate::text::Markup;
@@ -31,9 +31,9 @@ pub struct LabelLayer {
     #[cfg_attr(feature = "cli", serde(default))]
     pub r: f64,
     #[cfg_attr(feature = "cli", serde(default))]
-    pub ox: Origin,
-    #[cfg_attr(feature = "cli", serde(default = "default_text_origin"))]
-    pub oy: TextOrigin,
+    pub ox: Unit,
+    #[cfg_attr(feature = "cli", serde(default = "default_text_unit"))]
+    pub oy: TextUnit,
     pub auto_dir: Option<bool>,
     pub dpi: Option<f64>,
     pub direction: Option<Direction>,
@@ -48,8 +48,8 @@ const fn default_color() -> Color {
     Color::BLACK
 }
 
-const fn default_text_origin() -> TextOrigin {
-    TextOrigin::Baseline
+const fn default_text_unit() -> TextUnit {
+    TextUnit::Baseline
 }
 
 impl LabelLayer {
@@ -69,7 +69,7 @@ impl LabelLayer {
             w: Default::default(),
             r: 0.0,
             ox: Default::default(),
-            oy: default_text_origin(),
+            oy: default_text_unit(),
             auto_dir: Default::default(),
             dpi: Default::default(),
             direction: Default::default(),
@@ -105,7 +105,7 @@ impl LabelLayer {
     }
 
     #[must_use]
-    pub fn with_origin(mut self, ox: Origin, oy: TextOrigin) -> Self {
+    pub fn with_origin(mut self, ox: Unit, oy: TextUnit) -> Self {
         self.ox = ox;
         self.oy = oy;
         self
@@ -197,7 +197,7 @@ impl Layer for LabelLayer {
         )?;
         let text_img = self.resize(&ib, text_img)?;
         let h = layout.baseline();
-        let (img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, self.oy.into_origin(h))?;
+        let (img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, self.oy.into_unit(h))?;
         Ok(LayerOut::new(
             img,
             (self.x as f64 - ox).round() as i32,

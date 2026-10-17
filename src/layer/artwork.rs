@@ -1,7 +1,7 @@
 //! Represents an image layer loaded from artwork folder.
 
 use crate::error::ImgError;
-use crate::image::{FitMode, Origin};
+use crate::image::{FitMode, Unit};
 use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 
 #[cfg(feature = "cli")]
@@ -23,10 +23,10 @@ pub struct ArtworkLayer {
     pub h: f64,
     #[cfg_attr(feature = "cli", serde(default))]
     pub r: f64,
-    #[cfg_attr(feature = "cli", serde(default = "default_origin"))]
-    pub ox: Origin,
-    #[cfg_attr(feature = "cli", serde(default = "default_origin"))]
-    pub oy: Origin,
+    #[cfg_attr(feature = "cli", serde(default = "default_unit"))]
+    pub ox: Unit,
+    #[cfg_attr(feature = "cli", serde(default = "default_unit"))]
+    pub oy: Unit,
     #[cfg_attr(feature = "cli", serde(default))]
     pub fit: FitMode,
     #[cfg_attr(feature = "cli", serde(skip))]
@@ -34,8 +34,8 @@ pub struct ArtworkLayer {
 }
 
 #[cfg(feature = "cli")]
-fn default_origin() -> Origin {
-    Origin::Relative(0.5)
+fn default_unit() -> Unit {
+    Unit::Pct(0.5)
 }
 
 impl ArtworkLayer {
@@ -53,8 +53,8 @@ impl ArtworkLayer {
             w: w.into(),
             h: h.into(),
             r: Default::default(),
-            ox: Origin::Relative(0.5),
-            oy: Origin::Relative(0.5),
+            ox: Unit::Pct(0.5),
+            oy: Unit::Pct(0.5),
             fit: Default::default(),
             effects: Default::default(),
         }
@@ -67,7 +67,7 @@ impl ArtworkLayer {
     }
 
     #[must_use]
-    pub fn with_origin(mut self, ox: Origin, oy: Origin) -> Self {
+    pub fn with_origin(mut self, ox: Unit, oy: Unit) -> Self {
         self.ox = ox;
         self.oy = oy;
         self

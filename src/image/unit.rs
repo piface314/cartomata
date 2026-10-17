@@ -5,62 +5,62 @@ use logos::{Lexer, Logos};
 use serde::{de, ser, Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone)]
-pub enum Origin {
-    Absolute(f64),
-    Relative(f64),
+pub enum Unit {
+    Px(f64),
+    Pct(f64),
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum TextOrigin {
-    Absolute(f64),
-    Relative(f64),
+pub enum TextUnit {
+    Px(f64),
+    Pct(f64),
     Baseline,
 }
 
-impl Default for Origin {
+impl Default for Unit {
     fn default() -> Self {
-        Self::Absolute(0.0)
+        Self::Px(0.0)
     }
 }
 
-impl Default for TextOrigin {
+impl Default for TextUnit {
     fn default() -> Self {
-        Self::Absolute(0.0)
+        Self::Px(0.0)
     }
 }
 
-impl From<Origin> for TextOrigin {
-    fn from(value: Origin) -> Self {
+impl From<Unit> for TextUnit {
+    fn from(value: Unit) -> Self {
         match value {
-            Origin::Absolute(v) => Self::Absolute(v),
-            Origin::Relative(v) => Self::Relative(v),
+            Unit::Px(v) => Self::Px(v),
+            Unit::Pct(v) => Self::Pct(v),
         }
     }
 }
 
-impl Origin {
+impl Unit {
     pub fn apply(&self, x: f64) -> f64 {
         match self {
-            Self::Absolute(x) => *x,
-            Self::Relative(a) => a * x,
+            Self::Px(x) => *x,
+            Self::Pct(a) => a * x,
         }
     }
 
     pub fn half() -> Self {
-        Self::Relative(0.5)
+        Self::Pct(0.5)
     }
 
     pub fn full() -> Self {
-        Self::Relative(1.0)
+        Self::Pct(1.0)
     }
 }
 
-impl TextOrigin {
-    pub fn into_origin(&self, h: i32) -> Origin {
+impl TextUnit {
+    pub fn into_unit(&self, h: i32) -> Unit {
         match self {
-            Self::Absolute(x) => Origin::Absolute(*x),
-            Self::Relative(a) => Origin::Relative(*a),
-            Self::Baseline => Origin::Absolute((h / pango::SCALE) as f64),
+            Self::Px(x) => Unit::Px(*x),
+            Self::Pct(a) => Unit::Pct(*a),
+            Self::Baseline => Unit::Px((h / pango::SCALE) as f64),
         }
     }
 }
@@ -71,7 +71,7 @@ macro_rules! visit_int {
         where
             E: de::Error,
         {
-            Ok(Self::Value::Absolute(v as f64))
+            Ok(Self::Value::Px(v as f64))
         }
     };
 }
@@ -82,14 +82,14 @@ macro_rules! visit_float {
         where
             E: de::Error,
         {
-            Ok(Self::Value::Absolute(v as f64))
+            Ok(Self::Value::Px(v as f64))
         }
     };
 }
 
 #[derive(Debug, Logos)]
 #[logos(skip r"[ \t\n\f]+")]
-enum OriginToken {
+enum UnitToken {
     #[regex(r"[+-]?\d+", |lex| lex.slice().parse::<i64>().unwrap())]
     ValInt(i64),
     #[regex(r"[+-]?(\d*\.\d+(e[+-]?\d+)?|\d+e[+-]?\d+)", |lex| lex.slice().parse::<f64>().unwrap(), ignore(case))]
@@ -100,10 +100,10 @@ enum OriginToken {
     Px,
 }
 
-struct OriginVisitor;
+struct UnitVisitor;
 
-impl<'de> de::Visitor<'de> for OriginVisitor {
-    type Value = Origin;
+impl<'de> de::Visitor<'de> for UnitVisitor {
+    type Value = Unit;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str("an integer or a float")
@@ -127,52 +127,52 @@ impl<'de> de::Visitor<'de> for OriginVisitor {
                 )
             };
         }
-        let mut lex: Lexer<OriginToken> = Lexer::new(v);
+        let mut lex: Lexer<UnitToken> = Lexer::new(v);
         let v = match lex.next().transpose().map_err(|_| e!())? {
-            Some(OriginToken::ValInt(v)) => Ok(v as f64),
-            Some(OriginToken::ValFloat(v)) => Ok(v),
+            Some(UnitToken::ValInt(v)) => Ok(v as f64),
+            Some(UnitToken::ValFloat(v)) => Ok(v),
             _ => Err(e!()),
         }?;
         match lex.next().transpose().map_err(|_| e!())? {
-            Some(OriginToken::Px) => Ok(Origin::Absolute(v)),
-            Some(OriginToken::Percent) => Ok(Origin::Relative(v / 100.0)),
-            None => Ok(Origin::Absolute(v)),
+            Some(UnitToken::Px) => Ok(Unit::Px(v)),
+            Some(UnitToken::Percent) => Ok(Unit::Pct(v / 100.0)),
+            None => Ok(Unit::Px(v)),
             _ => Err(e!()),
         }
     }
 }
 
-impl<'de> Deserialize<'de> for Origin {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Origin, D::Error>
+impl<'de> Deserialize<'de> for Unit {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Unit, D::Error>
     where
         D: de::Deserializer<'de>,
     {
-        deserializer.deserialize_any(OriginVisitor)
+        deserializer.deserialize_any(UnitVisitor)
     }
 }
 
-impl Serialize for Origin {
+impl Serialize for Unit {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ser::Serializer,
     {
         match self {
-            Self::Relative(v) => serializer.serialize_str(&format!("{}%", v * 100.0)),
-            Self::Absolute(v) => serializer.serialize_str(&format!("{v}px")),
+            Self::Pct(v) => serializer.serialize_str(&format!("{}%", v * 100.0)),
+            Self::Px(v) => serializer.serialize_str(&format!("{v}px")),
         }
     }
 }
 
-impl Access for Origin {
+impl Access for Unit {
     fn access(&'_ self, _parts: &[crate::data::PredicatePathPart]) -> ValueRef<'_> {
         ValueRef::Null
     }
 }
 
-struct TextOriginVisitor;
+struct TextUnitVisitor;
 
-impl<'de> de::Visitor<'de> for TextOriginVisitor {
-    type Value = TextOrigin;
+impl<'de> de::Visitor<'de> for TextUnitVisitor {
+    type Value = TextUnit;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str("an integer, a float or `baseline`")
@@ -184,7 +184,7 @@ impl<'de> de::Visitor<'de> for TextOriginVisitor {
     {
         match v {
             "baseline" => Ok(Self::Value::Baseline),
-            _ => OriginVisitor.visit_str(v).map(|o| o.into()),
+            _ => UnitVisitor.visit_str(v).map(|o| o.into()),
         }
     }
 
@@ -196,29 +196,29 @@ impl<'de> de::Visitor<'de> for TextOriginVisitor {
     visit_float!(visit_f64 f64);
 }
 
-impl<'de> Deserialize<'de> for TextOrigin {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<TextOrigin, D::Error>
+impl<'de> Deserialize<'de> for TextUnit {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<TextUnit, D::Error>
     where
         D: de::Deserializer<'de>,
     {
-        deserializer.deserialize_any(TextOriginVisitor)
+        deserializer.deserialize_any(TextUnitVisitor)
     }
 }
 
-impl Serialize for TextOrigin {
+impl Serialize for TextUnit {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ser::Serializer,
     {
         match self {
             Self::Baseline => serializer.serialize_str("baseline"),
-            Self::Relative(v) => serializer.serialize_str(&format!("{}%", v * 100.0)),
-            Self::Absolute(v) => serializer.serialize_str(&format!("{v}px")),
+            Self::Pct(v) => serializer.serialize_str(&format!("{}%", v * 100.0)),
+            Self::Px(v) => serializer.serialize_str(&format!("{v}px")),
         }
     }
 }
 
-impl Access for TextOrigin {
+impl Access for TextUnit {
     fn access(&'_ self, _parts: &[crate::data::PredicatePathPart]) -> ValueRef<'_> {
         ValueRef::Null
     }

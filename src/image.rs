@@ -4,16 +4,16 @@ mod blend;
 mod blur;
 mod color;
 mod map;
-mod origin;
 mod stroke;
+mod unit;
 
 use crate::error::{ImgError, TextError};
 pub use crate::image::blend::BlendMode;
 pub use crate::image::blur::Blur;
 pub use crate::image::color::Color;
 pub use crate::image::map::ImageMap;
-pub use crate::image::origin::{Origin, TextOrigin};
 pub use crate::image::stroke::Stroke;
+pub use crate::image::unit::{TextUnit, Unit};
 use crate::text::attr::{Gravity, ITagAttr, LayoutAttr};
 use crate::text::{FontMap, Markup};
 use cairo::ImageSurface;
@@ -174,8 +174,8 @@ impl ImgBackend {
         y: i32,
         w: i32,
         h: i32,
-        ox: Origin,
-        oy: Origin,
+        ox: Unit,
+        oy: Unit,
     ) -> ImgResult<VipsImage> {
         let (ox, oy) = (ox.apply(w as f64).round(), oy.apply(h as f64).round());
         let (x, y) = (
@@ -295,8 +295,8 @@ impl ImgBackend {
         &self,
         img: &VipsImage,
         deg: f64,
-        ox: Origin,
-        oy: Origin,
+        ox: Unit,
+        oy: Unit,
     ) -> Result<(VipsImage, f64, f64), ImgError> {
         let (w, h) = (img.get_width() as f64, img.get_height() as f64);
         let ox = ox.apply(w);
@@ -319,8 +319,8 @@ impl ImgBackend {
         &self,
         img: VipsImage,
         deg: f64,
-        ox: Origin,
-        oy: Origin,
+        ox: Unit,
+        oy: Unit,
     ) -> Result<(VipsImage, f64, f64), ImgError> {
         if deg < f64::EPSILON {
             let (w, h) = (img.get_width() as f64, img.get_height() as f64);

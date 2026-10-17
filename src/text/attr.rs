@@ -1,7 +1,7 @@
 //! Text attribute values and conversions.
 
 use crate::error::TextError;
-use crate::image::{Color, ImageMap, ImgBackend, Origin};
+use crate::image::{Color, ImageMap, ImgBackend, Unit};
 use crate::text::FontMap;
 
 use libvips::VipsImage;
@@ -361,7 +361,7 @@ fn rotate_img(ib: &ImgBackend, img: VipsImage, gravity: Gravity) -> Option<VipsI
         _ => return Some(img),
     };
     let (img, _, _) = ib
-        .rotate(&img, deg, Origin::default(), Origin::default())
+        .rotate(&img, deg, Unit::default(), Unit::default())
         .ok()?;
     Some(img)
 }

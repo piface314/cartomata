@@ -2,7 +2,7 @@
 //! or multiline text areas.
 
 use crate::error::ImgError;
-use crate::image::{Color, Origin, TextOrigin};
+use crate::image::{Color, Unit, TextUnit};
 use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 use crate::text::attr::{Alignment, Direction, Gravity, GravityHint, LayoutAttr, WrapMode};
 use crate::text::Markup;
@@ -30,9 +30,9 @@ pub struct TextLayer {
     #[cfg_attr(feature = "cli", serde(default))]
     pub r: f64,
     #[cfg_attr(feature = "cli", serde(default))]
-    pub ox: Origin,
+    pub ox: Unit,
     #[cfg_attr(feature = "cli", serde(default))]
-    pub oy: TextOrigin,
+    pub oy: TextUnit,
     pub align: Option<Alignment>,
     pub auto_dir: Option<bool>,
     pub dpi: Option<f64>,
@@ -98,7 +98,7 @@ impl Layer for TextLayer {
             markup, &img_map, &font_map, font, self.size, self.color, &params,
         )?;
         let h = layout.baseline();
-        let (img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, self.oy.into_origin(h))?;
+        let (img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, self.oy.into_unit(h))?;
         Ok(LayerOut::new(
             img,
             (self.x as f64 - ox).round() as i32,
