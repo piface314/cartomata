@@ -29,7 +29,7 @@ pub fn predicate_no_access(input: TokenStream) -> TokenStream {
         .into()
 }
 
-#[proc_macro_derive(LuaLayer)]
+#[proc_macro_derive(LuaLayer, attributes(cartomata_use_crate))]
 pub fn lua_layer(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = parse_macro_input!(input);
     expand::derive_lua_layer(&ast)

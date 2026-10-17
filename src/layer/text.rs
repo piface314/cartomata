@@ -2,22 +2,22 @@
 //! or multiline text areas.
 
 use crate::error::ImgError;
-use crate::image::{BlendMode, Color, Origin, Stroke, TextOrigin};
-use crate::layer::{Layer, RenderContext};
+use crate::image::{Color, Origin, TextOrigin};
+use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 use crate::text::attr::{Alignment, Direction, Gravity, GravityHint, LayoutAttr, WrapMode};
 use crate::text::Markup;
 
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
-use libvips::VipsImage;
 #[cfg(feature = "cli")]
 use mlua::LuaSerdeExt;
 #[cfg(feature = "cli")]
 use serde::Deserialize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[cfg_attr(feature = "cli", derive(LuaLayer))]
 #[cfg_attr(feature = "cli", derive(Deserialize))]
+#[cfg_attr(feature = "cli", cartomata_use_crate)]
 pub struct TextLayer {
     pub text: String,
     pub x: i32,
@@ -33,9 +33,6 @@ pub struct TextLayer {
     pub ox: Origin,
     #[cfg_attr(feature = "cli", serde(default))]
     pub oy: TextOrigin,
-    #[cfg_attr(feature = "cli", serde(default))]
-    pub blend: BlendMode,
-    pub stroke: Option<Stroke>,
     pub align: Option<Alignment>,
     pub auto_dir: Option<bool>,
     pub dpi: Option<f64>,
@@ -48,6 +45,8 @@ pub struct TextLayer {
     pub line_spacing: Option<f64>,
     pub spacing: Option<f64>,
     pub wrap: Option<WrapMode>,
+    #[cfg_attr(feature = "cli", serde(skip))]
+    effects: Vec<LayerFx>,
 }
 
 #[cfg(feature = "cli")]
@@ -81,7 +80,13 @@ impl TextLayer {
 }
 
 impl Layer for TextLayer {
-    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage, ImgError> {
+    fn effects(&self) -> &Vec<super::LayerFx> {
+        &self.effects
+    }
+    fn effects_mut(&mut self) -> &mut Vec<super::LayerFx> {
+        &mut self.effects
+    }
+    fn render(&mut self, ctx: &RenderContext) -> Result<LayerOut, ImgError> {
         let img_map = ctx.img_map;
         let font_map = ctx.font_map;
         let ib = ctx.backend;
@@ -92,14 +97,12 @@ impl Layer for TextLayer {
         let (text_img, layout) = ib.print(
             markup, &img_map, &font_map, font, self.size, self.color, &params,
         )?;
-        let (text_img, dh) = if let Some(stroke) = self.stroke {
-            (ib.stroke_checked(text_img, stroke)?, stroke.size)
-        } else {
-            (text_img, 0)
-        };
-        let h = layout.baseline() + dh;
-        let (text_img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, self.oy.into_origin(h))?;
-        let (ox, oy) = (Origin::Absolute(ox), Origin::Absolute(oy));
-        ib.overlay(&img, &text_img, self.x, self.y, ox, oy, self.blend)
+        let h = layout.baseline();
+        let (img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, self.oy.into_origin(h))?;
+        Ok(LayerOut::new(
+            img,
+            (self.x as f64 - ox).round() as i32,
+            (self.y as f64 - oy).round() as i32,
+        ))
     }
 }

@@ -3,10 +3,10 @@
 use regex::Regex;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::fmt;
+use std::fmt::{self, Debug};
 use std::str::FromStr;
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Copy, Clone, Default)]
 pub struct Color {
     pub r: f64,
     pub g: f64,
@@ -109,6 +109,12 @@ impl fmt::Display for Color {
         } else {
             write!(f, "#{:02X}{:02X}{:02X}", r, g, b)
         }
+    }
+}
+
+impl Debug for Color {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Color({self})")
     }
 }
 

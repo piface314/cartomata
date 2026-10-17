@@ -1,12 +1,14 @@
 //! Image backend implementations.
 
 mod blend;
+mod blur;
 mod color;
 mod map;
 mod origin;
 mod stroke;
 
 use crate::error::{ImgError, TextError};
+pub use crate::image::blur::Blur;
 pub use crate::image::blend::BlendMode;
 pub use crate::image::color::Color;
 pub use crate::image::map::ImageMap;
@@ -154,7 +156,7 @@ impl ImgBackend {
     }
 
     /// Multiplies the image opacity by the given value.
-    /// 
+    ///
     /// If alpha is `1.0`, the image is returned unchanged.
     pub fn set_opacity_checked(&self, img: VipsImage, alpha: f64) -> ImgResult<VipsImage> {
         if alpha.abs() - 1.0 < f64::EPSILON {
@@ -213,7 +215,7 @@ impl ImgBackend {
     }
 
     /// Scales the image by the given horizontal and vertical factors.
-    /// 
+    ///
     /// If both `sx` and `sy` are `1.0`, the image is returned unchanged.
     pub fn scale_checked(&self, img: VipsImage, sx: f64, sy: f64) -> ImgResult<VipsImage> {
         if sx.abs() - 1.0 < f64::EPSILON && sy.abs() - 1.0 < f64::EPSILON {
@@ -247,7 +249,7 @@ impl ImgBackend {
     }
 
     /// Scales the image to the given size.
-    /// 
+    ///
     /// If both width and height are [`None`], the image is returned unchanged.
     pub fn scale_to_checked(
         &self,
@@ -311,7 +313,7 @@ impl ImgBackend {
 
     /// Rotates the image around the given origin point.
     /// The horizontal and vetical displacements are also returned.
-    /// 
+    ///
     /// If `deg` is zero, the image is returned unchanged.
     pub fn rotate_checked(
         &self,
@@ -372,8 +374,27 @@ impl ImgBackend {
         Ok(img)
     }
 
-    /// Draws a stroke around the visible edges of the image.
+    /// Applies gaussian blur to the image.
+    pub fn blur(&self, img: &VipsImage, sigma: f64) -> ImgResult<(VipsImage, f64, f64)> {
+        let (w, h) = (img.get_width() as f64, img.get_height() as f64);
+        let out = ops::gaussblur(img, sigma).map_err(|e| self.err(e))?;
+        let (tw, th) = (out.get_width() as f64, out.get_height() as f64);
+        Ok((out, (tw - w) / 2.0, (th - h) / 2.0))
+    }
+
+    /// Applies gaussian blur to the image.
     /// 
+    /// If `sigma` is zero, the image is returned unchanged.
+    pub fn blur_checked(&self, img: VipsImage, sigma: f64) -> ImgResult<(VipsImage, f64, f64)> {
+        if sigma.abs() < f64::EPSILON {
+            Ok((img, 0.0, 0.0))
+        } else {
+            self.blur(&img, sigma)
+        }
+    }
+
+    /// Draws a stroke around the visible edges of the image.
+    ///
     /// If the stroke size is zero, the image is returned unchanged.
     pub fn stroke_checked(&self, img: VipsImage, stroke: Stroke) -> ImgResult<VipsImage> {
         if stroke.size == 0 {
@@ -411,7 +432,7 @@ impl ImgBackend {
     }
 
     /// Rounds the four corners of the given image using the given radius.
-    /// 
+    ///
     /// If the radius is zero, the image is returned unchanged.
     #[cfg(feature = "vips-8-16")]
     pub fn round_corners_checked(&self, img: VipsImage, radius: i32) -> ImgResult<VipsImage> {
@@ -450,15 +471,10 @@ impl ImgBackend {
         src: &VipsImage,
         x: i32,
         y: i32,
-        ox: Origin,
-        oy: Origin,
         mode: BlendMode,
     ) -> ImgResult<VipsImage> {
         let (bw, bh) = (base.get_width(), base.get_height());
-        let (w, h) = (src.get_width() as f64, src.get_height() as f64);
-        let ox = ox.apply(w).round() as i32;
-        let oy = oy.apply(h).round() as i32;
-        let src = ops::embed(&src, x - ox, y - oy, bw, bh).map_err(|e| self.err(e))?;
+        let src = ops::embed(&src, x, y, bw, bh).map_err(|e| self.err(e))?;
         ops::composite2(&base, &src, mode.into()).map_err(|e| self.err(e))
     }
 
@@ -511,15 +527,7 @@ impl ImgBackend {
                     let i = att.start_index();
                     let rect = layout.index_to_pos(i as i32);
                     let (x, y) = (rect.x() / pango::SCALE, rect.y() / pango::SCALE);
-                    base = self.overlay(
-                        &base,
-                        &img,
-                        x,
-                        y,
-                        Origin::Absolute(0.0),
-                        Origin::Absolute(0.0),
-                        BlendMode::Over,
-                    )?;
+                    base = self.overlay(&base, &img, x, y, BlendMode::Over)?;
                 }
             }
         }

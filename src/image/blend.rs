@@ -1,5 +1,7 @@
 //! Image blend modes.
 
+use crate::error::ImgError;
+use crate::layer::{LayerFx, LayerOut, RenderContext};
 use libvips::ops;
 use serde::{Deserialize, Serialize};
 
@@ -60,5 +62,17 @@ into_vips! {
 impl Default for BlendMode {
     fn default() -> Self {
         Self::Over
+    }
+}
+
+impl From<BlendMode> for LayerFx {
+    fn from(blend: BlendMode) -> Self {
+        let desc = format!("{blend:?}");
+        Self::new(
+            desc,
+            move |_: &RenderContext, out: LayerOut| -> Result<LayerOut, ImgError> {
+                Ok(out.with_blend_mode(blend))
+            },
+        )
     }
 }

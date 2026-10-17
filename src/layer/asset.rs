@@ -1,20 +1,20 @@
 //! Represents an image layer loaded from the template assets
 
 use crate::error::ImgError;
-use crate::image::{BlendMode, FitMode, Origin, Stroke};
-use crate::layer::{Layer, RenderContext};
+use crate::image::{FitMode, Origin};
+use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
-use libvips::VipsImage;
 #[cfg(feature = "cli")]
 use mlua::LuaSerdeExt;
 #[cfg(feature = "cli")]
 use serde::Deserialize;
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "cli", derive(LuaLayer))]
+#[derive(Debug)]
 #[cfg_attr(feature = "cli", derive(Deserialize))]
+#[cfg_attr(feature = "cli", derive(LuaLayer))]
+#[cfg_attr(feature = "cli", cartomata_use_crate)]
 pub struct AssetLayer {
     pub path: String,
     pub x: i32,
@@ -31,9 +31,8 @@ pub struct AssetLayer {
     pub oy: Origin,
     #[cfg_attr(feature = "cli", serde(default))]
     pub fit: FitMode,
-    #[cfg_attr(feature = "cli", serde(default))]
-    pub blend: BlendMode,
-    pub stroke: Option<Stroke>,
+    #[cfg_attr(feature = "cli", serde(skip))]
+    effects: Vec<LayerFx>,
 }
 
 impl AssetLayer {
@@ -49,8 +48,7 @@ impl AssetLayer {
             ox: Default::default(),
             oy: Default::default(),
             fit: Default::default(),
-            blend: Default::default(),
-            stroke: Default::default(),
+            effects: Default::default(),
         }
     }
 
@@ -90,36 +88,30 @@ impl AssetLayer {
         self.fit = fit;
         self
     }
-
-    #[must_use]
-    pub fn with_blend_mode(mut self, blend: BlendMode) -> Self {
-        self.blend = blend;
-        self
-    }
-
-    #[must_use]
-    pub fn with_stroke(mut self, stroke: Stroke) -> Self {
-        self.stroke = Some(stroke);
-        self
-    }
 }
 
 impl Layer for AssetLayer {
-    fn render(&self, img: VipsImage, ctx: &RenderContext) -> Result<VipsImage, ImgError> {
+    fn effects(&self) -> &Vec<LayerFx> {
+        &self.effects
+    }
+
+    fn effects_mut(&mut self) -> &mut Vec<LayerFx> {
+        &mut self.effects
+    }
+
+    fn render(&mut self, ctx: &RenderContext) -> Result<LayerOut, ImgError> {
         let ib = ctx.backend;
         let img_map = ctx.img_map;
 
         let path = img_map.asset_path(&self.path);
-        let asset = ib.open(&path.to_string_lossy())?;
-        let asset = ib.scale_to(&asset, self.w, self.h)?;
-        let asset = if let Some(stroke) = self.stroke {
-            ib.stroke_checked(asset, stroke)?
-        } else {
-            asset
-        };
-        let (asset, ox, oy) = ib.rotate_checked(asset, self.r, self.ox, self.oy)?;
-        let (ox, oy) = (Origin::Absolute(ox), Origin::Absolute(oy));
-        let asset = ib.set_opacity(&asset, self.a)?;
-        ib.overlay(&img, &asset, self.x, self.y, ox, oy, self.blend)
+        let img = ib.open(&path.to_string_lossy())?;
+        let img = ib.scale_to_checked(img, self.w, self.h)?;
+        let (img, ox, oy) = ib.rotate_checked(img, self.r, self.ox, self.oy)?;
+        let img = ib.set_opacity(&img, self.a)?;
+        Ok(LayerOut::new(
+            img,
+            (self.x as f64 - ox).round() as i32,
+            (self.y as f64 - oy).round() as i32,
+        ))
     }
 }
