@@ -2,13 +2,14 @@
 //! or multiline text areas.
 
 use crate::error::ImgError;
-use crate::image::{Color, ImgBackend, Unit, TextUnit};
+use crate::image::{Color, ImgBackend, TextUnit, Unit};
 use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 use crate::text::attr::{Direction, Gravity, GravityHint, LayoutAttr};
 use crate::text::Markup;
 
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
+use libvips::ops as vips;
 use libvips::VipsImage;
 #[cfg(feature = "cli")]
 use mlua::LuaSerdeExt;
@@ -195,9 +196,22 @@ impl Layer for LabelLayer {
         let (text_img, layout) = ib.print(
             markup, &img_map, &font_map, font, self.size, self.color, &params,
         )?;
-        let text_img = self.resize(&ib, text_img)?;
         let h = layout.baseline();
-        let (img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, self.oy.into_unit(h))?;
+        let oy = self.oy.into_unit(h);
+        let text_img = match oy {
+            Unit::Pct(_) => {
+                let (rect, _) = layout.extents();
+                let x = (rect.x() as f64 / pango::SCALE as f64).round() as i32;
+                let y = (rect.y() as f64 / pango::SCALE as f64).round() as i32;
+                let w = (rect.width() as f64 / pango::SCALE as f64).round() as i32;
+                let h = (rect.height() as f64 / pango::SCALE as f64).round() as i32;
+                vips::extract_area(&text_img, x, y, w, h).map_err(|e| ib.err(e))?
+            }
+            _ => text_img,
+        };
+        let text_img = self.resize(&ib, text_img)?;
+
+        let (img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, oy)?;
         Ok(LayerOut::new(
             img,
             (self.x as f64 - ox).round() as i32,
