@@ -15,21 +15,16 @@ pub struct Color {
 }
 
 impl Color {
-    pub const WHITE: Self = Self {r: 1.0, g: 1.0, b: 1.0, a: Some(1.0)};
-    pub const BLACK: Self = Self {r: 0.0, g: 0.0, b: 0.0, a: Some(1.0)};
-    pub const CLEAR: Self = Self {r: 0.0, g: 0.0, b: 0.0, a: Some(0.0)};
+    pub const WHITE: Self = Self { r: 1.0, g: 1.0, b: 1.0, a: Some(1.0) };
+    pub const BLACK: Self = Self { r: 0.0, g: 0.0, b: 0.0, a: Some(1.0) };
+    pub const CLEAR: Self = Self { r: 0.0, g: 0.0, b: 0.0, a: Some(0.0) };
 
     pub fn from_rgb(r: f64, g: f64, b: f64) -> Self {
         Self { r, g, b, a: None }
     }
 
     pub fn from_rgba(r: f64, g: f64, b: f64, a: f64) -> Self {
-        Self {
-            r,
-            g,
-            b,
-            a: Some(a),
-        }
+        Self { r, g, b, a: Some(a) }
     }
 
     pub fn rgb(&self) -> (f64, f64, f64) {
@@ -72,6 +67,16 @@ impl Color {
     pub fn pango_channel(x: f64) -> u16 {
         let c = (x * 255.0) as u16;
         c | c << 8
+    }
+
+    pub fn inverted(&self) -> Self {
+        let Color { r, g, b, a } = self;
+        Color {
+            r: 1.0 - r.clamp(0.0, 1.0),
+            g: 1.0 - g.clamp(0.0, 1.0),
+            b: 1.0 - b.clamp(0.0, 1.0),
+            a: *a,
+        }
     }
 }
 
