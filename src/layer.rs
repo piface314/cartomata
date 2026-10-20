@@ -85,6 +85,17 @@ pub trait Layer: Debug {
         self
     }
 
+    fn stroke_opt(self, stroke: Option<Stroke>) -> Self
+    where
+        Self: Sized,
+    {
+        if let Some(stroke) = stroke {
+            self.stroke(stroke)
+        } else {
+            self
+        }
+    }
+
     fn blend(mut self, blend: BlendMode) -> Self
     where
         Self: Sized,
