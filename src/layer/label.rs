@@ -35,6 +35,7 @@ pub struct LabelLayer {
     pub ox: Unit,
     #[cfg_attr(feature = "cli", serde(default = "default_text_unit"))]
     pub oy: TextUnit,
+    pub ink_extents: bool,
     pub auto_dir: Option<bool>,
     pub dpi: Option<f64>,
     pub direction: Option<Direction>,
@@ -71,6 +72,7 @@ impl LabelLayer {
             r: 0.0,
             ox: Default::default(),
             oy: default_text_unit(),
+            ink_extents: Default::default(),
             auto_dir: Default::default(),
             dpi: Default::default(),
             direction: Default::default(),
@@ -109,6 +111,12 @@ impl LabelLayer {
     pub fn with_origin(mut self, ox: Unit, oy: TextUnit) -> Self {
         self.ox = ox;
         self.oy = oy;
+        self
+    }
+
+    #[must_use]
+    pub fn with_ink_extents(mut self, ink_extents: bool) -> Self {
+        self.ink_extents = ink_extents;
         self
     }
 
@@ -198,16 +206,15 @@ impl Layer for LabelLayer {
         )?;
         let h = layout.baseline();
         let oy = self.oy.into_unit(h);
-        let text_img = match oy {
-            Unit::Pct(_) => {
-                let (rect, _) = layout.extents();
-                let x = (rect.x() as f64 / pango::SCALE as f64).round() as i32;
-                let y = (rect.y() as f64 / pango::SCALE as f64).round() as i32;
-                let w = (rect.width() as f64 / pango::SCALE as f64).round() as i32;
-                let h = (rect.height() as f64 / pango::SCALE as f64).round() as i32;
-                vips::extract_area(&text_img, x, y, w, h).map_err(|e| ib.err(e))?
-            }
-            _ => text_img,
+        let text_img = if self.ink_extents {
+            let (rect, _) = layout.extents();
+            let x = (rect.x() as f64 / pango::SCALE as f64).round() as i32;
+            let y = (rect.y() as f64 / pango::SCALE as f64).round() as i32;
+            let w = (rect.width() as f64 / pango::SCALE as f64).round() as i32;
+            let h = (rect.height() as f64 / pango::SCALE as f64).round() as i32;
+            vips::extract_area(&text_img, x, y, w, h).map_err(|e| ib.err(e))?
+        } else {
+            text_img
         };
         let text_img = self.resize(&ib, text_img)?;
 
