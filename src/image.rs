@@ -64,6 +64,21 @@ impl ImgBackend {
         }
     }
 
+    pub fn debug(&self, img: &VipsImage) -> String {
+        let filename = img.get_filename().unwrap_or_else(|_| "Err(filename)");
+        let (w, h) = (img.get_width(), img.get_height());
+        let format = img
+            .get_format()
+            .map(|f| format!("{f:?}"))
+            .unwrap_or_else(|_| "Err(BandFormat)".into());
+        let bands = img.get_bands();
+        let interp = img
+            .get_interpretation()
+            .map(|i| format!("{i:?}"))
+            .unwrap_or_else(|_| format!("Err(Interpretation)"));
+        format!("VipsImage({filename}: {w}x{h} {format}, {bands} bands, {interp})")
+    }
+
     pub fn reinterpret(&self, img: &VipsImage) -> ImgResult<VipsImage> {
         let img = ops::cast(&img, ops::BandFormat::Uchar).map_err(|e| self.err(e))?;
         let img = ops::copy_with_opts(
