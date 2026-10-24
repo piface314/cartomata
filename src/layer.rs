@@ -16,10 +16,41 @@ use libvips::VipsImage;
 pub use text::TextLayer;
 
 #[derive(Clone)]
-pub struct RenderContext<'a> {
-    pub backend: &'a ImgBackend,
-    pub font_map: &'a FontMap,
-    pub img_map: &'a ImageMap,
+pub struct RenderContext<'g, 'l> {
+    pub backend: &'g ImgBackend,
+    pub font_map: &'g FontMap,
+    pub img_map: &'g ImageMap,
+    pub out: Option<&'l CardOut>,
+}
+
+impl<'g, 'l> RenderContext<'g, 'l> {
+    pub fn with_out(&self, out: &'l CardOut) -> Self {
+        Self {
+            backend: self.backend,
+            font_map: self.font_map,
+            img_map: self.img_map,
+            out: Some(out),
+        }
+    }
+}
+
+impl<'g, 'l> AsRef<[LayerOut]> for RenderContext<'g, 'l> {
+    #[inline]
+    fn as_ref(&self) -> &[LayerOut] {
+        self.out.as_ref().map(|out| out.as_ref()).unwrap_or(&[])
+    }
+}
+
+pub struct CardOut {
+    pub layers: Vec<LayerOut>,
+    pub img: VipsImage,
+}
+
+impl AsRef<[LayerOut]> for CardOut {
+    #[inline]
+    fn as_ref(&self) -> &[LayerOut] {
+        &self.layers
+    }
 }
 
 pub struct LayerOut {
@@ -121,13 +152,21 @@ impl<'a> LayerStack<'a> {
         let bg = ctx.img_map.background;
         let (w, h) = ctx.img_map.card_size;
 
-        let mut img = ctx.backend.create(&bg, w, h)?;
+        let img = ctx.backend.create(&bg, w, h)?;
 
         let LayerStack(layers) = self;
+        let mut out = CardOut { img, layers: Vec::with_capacity(layers.len()) };
         for mut layer in layers.into_iter() {
-            img = layer.render_on(img, ctx)?;
+            let ctx = ctx.with_out(&out);
+            let mut params = layer.render(&ctx)?;
+            for fx in layer.effects().iter() {
+                params = fx.apply(&ctx, params)?;
+            }
+            let LayerOut { img, x, y, blend } = &params;
+            out.img = ctx.backend.overlay(&out.img, img, *x, *y, *blend)?;
+            out.layers.push(params);
         }
-        Ok(img)
+        Ok(out.img)
     }
 
     pub fn push(&mut self, layer: impl Layer + 'a) {

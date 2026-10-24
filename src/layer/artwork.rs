@@ -1,7 +1,7 @@
 //! Represents an image layer loaded from artwork folder.
 
 use crate::error::ImgError;
-use crate::image::{FitMode, Unit};
+use crate::image::{FitMode, Position, Unit};
 use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 
 #[cfg(feature = "cli")]
@@ -17,8 +17,8 @@ use serde::Deserialize;
 #[cfg_attr(feature = "cli", cartomata_use_crate)]
 pub struct ArtworkLayer {
     pub id: String,
-    pub x: i32,
-    pub y: i32,
+    pub x: Position,
+    pub y: Position,
     pub w: f64,
     pub h: f64,
     #[cfg_attr(feature = "cli", serde(default))]
@@ -41,8 +41,8 @@ fn default_unit() -> Unit {
 impl ArtworkLayer {
     pub fn new(
         id: impl Into<String>,
-        x: impl Into<i32>,
-        y: impl Into<i32>,
+        x: impl Into<Position>,
+        y: impl Into<Position>,
         w: impl Into<f64>,
         h: impl Into<f64>,
     ) -> Self {
@@ -99,10 +99,11 @@ impl Layer for ArtworkLayer {
         let artwork = ib.scale_to_fit(&artwork, self.w, self.h, self.fit)?;
         let (img, dx, dy) = ib.rotate_checked(artwork, self.r, self.ox, self.oy)?;
         let (ox, oy) = (self.ox.apply(self.w), self.oy.apply(self.h));
+        let (x, y) = (self.x.apply(ctx), self.y.apply(ctx));
         Ok(LayerOut::new(
             img,
-            (self.x as f64 - dx + ox).round() as i32,
-            (self.y as f64 - dy + oy).round() as i32,
+            (x - dx + ox).round() as i32,
+            (y - dy + oy).round() as i32,
         ))
     }
 }

@@ -254,6 +254,7 @@ impl<'a, C: Card + Send, T: Template<C>, V: Visitor<C, T>> Worker<'a, C, T, V> {
             img_map: self.template.resources(),
             font_map: self.template.fonts(),
             backend: self.img_backend,
+            out: None,
         };
         let decoder = self
             .template

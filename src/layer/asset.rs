@@ -1,7 +1,7 @@
 //! Represents an image layer loaded from the template assets
 
 use crate::error::ImgError;
-use crate::image::{FitMode, Unit};
+use crate::image::{FitMode, Position, Unit};
 use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 
 #[cfg(feature = "cli")]
@@ -17,8 +17,8 @@ use serde::Deserialize;
 #[cfg_attr(feature = "cli", cartomata_use_crate)]
 pub struct AssetLayer {
     pub path: String,
-    pub x: i32,
-    pub y: i32,
+    pub x: Position,
+    pub y: Position,
     pub w: Option<i32>,
     pub h: Option<i32>,
     #[cfg_attr(feature = "cli", serde(default))]
@@ -36,7 +36,7 @@ pub struct AssetLayer {
 }
 
 impl AssetLayer {
-    pub fn new(path: impl Into<String>, x: impl Into<i32>, y: impl Into<i32>) -> Self {
+    pub fn new(path: impl Into<String>, x: impl Into<Position>, y: impl Into<Position>) -> Self {
         Self {
             path: path.into(),
             x: x.into(),
@@ -108,10 +108,11 @@ impl Layer for AssetLayer {
         let img = ib.scale_to_checked(img, self.w, self.h)?;
         let (img, ox, oy) = ib.rotate_checked(img, self.r, self.ox, self.oy)?;
         let img = ib.set_opacity(&img, self.a)?;
+        let (x, y) = (self.x.apply(ctx), self.y.apply(ctx));
         Ok(LayerOut::new(
             img,
-            (self.x as f64 - ox).round() as i32,
-            (self.y as f64 - oy).round() as i32,
+            (x - ox).round() as i32,
+            (y - oy).round() as i32,
         ))
     }
 }

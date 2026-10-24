@@ -1,8 +1,7 @@
-//! Represents a layer to render arbitrary text, including single line labels
-//! or multiline text areas.
+//! Represents a layer to render single line text labels.
 
 use crate::error::ImgError;
-use crate::image::{Color, ImgBackend, TextUnit, Unit};
+use crate::image::{Color, ImgBackend, Position, TextUnit, Unit};
 use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 use crate::text::attr::{Direction, Gravity, GravityHint, LayoutAttr};
 use crate::text::Markup;
@@ -22,10 +21,11 @@ use serde::Deserialize;
 #[cfg_attr(feature = "cli", cartomata_use_crate)]
 pub struct LabelLayer {
     pub text: String,
-    pub x: i32,
-    pub y: i32,
-    pub size: f64,
+    pub x: Position,
+    pub y: Position,
     pub font: Option<String>,
+    #[cfg_attr(feature = "cli", serde(default = "default_size"))]
+    pub size: f64,
     #[cfg_attr(feature = "cli", serde(default = "default_color"))]
     pub color: Color,
     pub w: Option<i32>,
@@ -54,18 +54,17 @@ const fn default_text_unit() -> TextUnit {
     TextUnit::Baseline
 }
 
+const fn default_size() -> f64 {
+    12.0
+}
+
 impl LabelLayer {
-    pub fn new(
-        text: impl Into<String>,
-        x: impl Into<i32>,
-        y: impl Into<i32>,
-        size: impl Into<f64>,
-    ) -> Self {
+    pub fn new(text: impl Into<String>, x: impl Into<Position>, y: impl Into<Position>) -> Self {
         Self {
             text: text.into(),
             x: x.into(),
             y: y.into(),
-            size: size.into(),
+            size: default_size(),
             font: Default::default(),
             color: default_color(),
             w: Default::default(),
@@ -84,8 +83,9 @@ impl LabelLayer {
     }
 
     #[must_use]
-    pub fn with_font(mut self, font: impl Into<String>) -> Self {
+    pub fn with_font(mut self, font: impl Into<String>, size: impl Into<f64>) -> Self {
         self.font = Some(font.into());
+        self.size = size.into();
         self
     }
 
@@ -219,10 +219,11 @@ impl Layer for LabelLayer {
         let text_img = self.resize(&ib, text_img)?;
 
         let (img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, oy)?;
+        let (x, y) = (self.x.apply(ctx), self.y.apply(ctx));
         Ok(LayerOut::new(
             img,
-            (self.x as f64 - ox).round() as i32,
-            (self.y as f64 - oy).round() as i32,
+            (x - ox).round() as i32,
+            (y - oy).round() as i32,
         ))
     }
 }

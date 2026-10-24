@@ -4,6 +4,7 @@ mod blend;
 mod blur;
 mod color;
 mod map;
+mod position;
 mod stroke;
 mod unit;
 
@@ -12,6 +13,7 @@ pub use crate::image::blend::BlendMode;
 pub use crate::image::blur::Blur;
 pub use crate::image::color::Color;
 pub use crate::image::map::ImageMap;
+pub use crate::image::position::{Position, RelativePosition};
 pub use crate::image::stroke::Stroke;
 pub use crate::image::unit::{TextUnit, Unit};
 use crate::text::attr::{Gravity, ITagAttr, LayoutAttr};

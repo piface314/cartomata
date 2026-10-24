@@ -43,7 +43,7 @@ where
         } else {
             ImgBackend::new()?
         };
-        let ctx = RenderContext { backend: &backend, font_map, img_map };
+        let ctx = RenderContext { backend: &backend, font_map, img_map, out: None };
         source
             .read(filter)
             .map_err(RuntimeError::cant_read)?
