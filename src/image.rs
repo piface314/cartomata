@@ -52,6 +52,15 @@ impl From<VipsApp> for ImgBackend {
     }
 }
 
+macro_rules! check_f64 {
+    ($v:expr) => {
+        ($v).abs() < f64::EPSILON
+    };
+    ($v:expr, $p:literal) => {
+        ($v - ($p)).abs() < f64::EPSILON
+    };
+}
+
 impl ImgBackend {
     pub fn new() -> ImgResult<Self> {
         let vips_app = libvips::VipsApp::default("cartomata")
@@ -176,7 +185,7 @@ impl ImgBackend {
     ///
     /// If alpha is `1.0`, the image is returned unchanged.
     pub fn set_opacity_checked(&self, img: VipsImage, alpha: f64) -> ImgResult<VipsImage> {
-        if alpha.abs() - 1.0 < f64::EPSILON {
+        if check_f64!(alpha, 1.0) {
             Ok(img)
         } else {
             self.set_opacity(&img, alpha)
@@ -235,7 +244,7 @@ impl ImgBackend {
     ///
     /// If both `sx` and `sy` are `1.0`, the image is returned unchanged.
     pub fn scale_checked(&self, img: VipsImage, sx: f64, sy: f64) -> ImgResult<VipsImage> {
-        if sx.abs() - 1.0 < f64::EPSILON && sy.abs() - 1.0 < f64::EPSILON {
+        if check_f64!(sx, 1.0) && check_f64!(sy, 1.0) {
             Ok(img)
         } else {
             self.scale(&img, sx, sy)
@@ -339,7 +348,7 @@ impl ImgBackend {
         ox: Unit,
         oy: Unit,
     ) -> Result<(VipsImage, f64, f64), ImgError> {
-        if deg < f64::EPSILON {
+        if check_f64!(deg) {
             let (w, h) = (img.get_width() as f64, img.get_height() as f64);
             let ox = ox.apply(w);
             let oy = oy.apply(h);
@@ -418,7 +427,7 @@ impl ImgBackend {
     ///
     /// If `sigma` is zero, the image is returned unchanged.
     pub fn blur_checked(&self, img: VipsImage, sigma: f64) -> ImgResult<(VipsImage, f64, f64)> {
-        if sigma.abs() < f64::EPSILON {
+        if check_f64!(sigma) {
             Ok((img, 0.0, 0.0))
         } else {
             self.blur(&img, sigma)
