@@ -35,6 +35,10 @@ pub struct LabelLayer {
     pub ox: Unit,
     #[cfg_attr(feature = "cli", serde(default = "default_text_unit"))]
     pub oy: TextUnit,
+    #[cfg_attr(feature = "cli", serde(default = "default_sy"))]
+    pub sy: f64,
+    #[cfg_attr(feature = "cli", serde(default))]
+    pub overflow: Overflow,
     pub ink_extents: bool,
     pub auto_dir: Option<bool>,
     pub dpi: Option<f64>,
@@ -58,6 +62,32 @@ const fn default_size() -> f64 {
     12.0
 }
 
+const fn default_sy() -> f64 {
+    1.0
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[cfg_attr(feature = "cli", derive(Deserialize))]
+#[cfg_attr(feature = "cli", serde(rename_all = "kebab-case"))]
+pub enum Overflow {
+    #[default]
+    Shrink,
+    Left,
+    Center,
+    Right,
+}
+
+impl Overflow {
+    pub fn as_f64(&self) -> f64 {
+        match self {
+            Overflow::Shrink => 0.0,
+            Overflow::Left => 0.0,
+            Overflow::Center => 0.5,
+            Overflow::Right => 1.0,
+        }
+    }
+}
+
 impl LabelLayer {
     pub fn new(text: impl Into<String>, x: impl Into<Position>, y: impl Into<Position>) -> Self {
         Self {
@@ -71,6 +101,8 @@ impl LabelLayer {
             r: 0.0,
             ox: Default::default(),
             oy: default_text_unit(),
+            sy: default_sy(),
+            overflow: Default::default(),
             ink_extents: Default::default(),
             auto_dir: Default::default(),
             dpi: Default::default(),
@@ -102,6 +134,12 @@ impl LabelLayer {
     }
 
     #[must_use]
+    pub fn with_width_opt(mut self, w: Option<i32>) -> Self {
+        self.w = w;
+        self
+    }
+
+    #[must_use]
     pub fn with_rotation(mut self, r: impl Into<f64>) -> Self {
         self.r = r.into();
         self
@@ -111,6 +149,18 @@ impl LabelLayer {
     pub fn with_origin(mut self, ox: Unit, oy: TextUnit) -> Self {
         self.ox = ox;
         self.oy = oy;
+        self
+    }
+
+    #[must_use]
+    pub fn with_overflow(mut self, overflow: Overflow) -> Self {
+        self.overflow = overflow;
+        self
+    }
+
+    #[must_use]
+    pub fn with_y_scale(mut self, sy: impl Into<f64>) -> Self {
+        self.sy = sy.into();
         self
     }
 
@@ -171,17 +221,26 @@ impl LabelLayer {
         params
     }
 
-    fn resize(&self, ib: &ImgBackend, img: VipsImage) -> Result<VipsImage, ImgError> {
-        if let Some(w) = self.w {
-            let iw = img.get_width();
-            if iw > w {
+    fn resize_x(&self, ib: &ImgBackend, img: VipsImage) -> Result<(VipsImage, Unit), ImgError> {
+        let Some(w) = self.w else {
+            return Ok((img, self.ox));
+        };
+        let iw = img.get_width();
+        if iw <= w {
+            let x = self.ox.apply((w - iw) as f64).round() as i32;
+            let img = vips::embed(&img, x, 0, w, img.get_height())?;
+            return Ok((img, self.ox));
+        }
+        match self.overflow {
+            Overflow::Shrink => {
                 let s = w as f64 / iw as f64;
-                ib.scale(&img, 1.0, s)
-            } else {
-                Ok(img)
+                Ok((ib.scale(&img, 1.0, s)?, self.ox))
             }
-        } else {
-            Ok(img)
+            ov => {
+                let w = w as f64;
+                let ov = ov.as_f64();
+                Ok((img, Unit::Px((iw as f64 - w) * ov + self.ox.apply(w))))
+            }
         }
     }
 }
@@ -204,8 +263,6 @@ impl Layer for LabelLayer {
         let (text_img, layout) = ib.print(
             markup, &img_map, &font_map, font, self.size, self.color, &params,
         )?;
-        let h = layout.baseline();
-        let oy = self.oy.into_unit(h);
         let text_img = if self.ink_extents {
             let (rect, _) = layout.extents();
             let x = (rect.x() as f64 / pango::SCALE as f64).round() as i32;
@@ -216,9 +273,11 @@ impl Layer for LabelLayer {
         } else {
             text_img
         };
-        let text_img = self.resize(&ib, text_img)?;
-
-        let (img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, oy)?;
+        let text_img = ib.scale_checked(text_img, 1.0, self.sy)?;
+        let h = ((layout.baseline() as f64) * self.sy).round() as i32;
+        let oy = self.oy.into_unit(h);
+        let (text_img, ox) = self.resize_x(ib, text_img)?;
+        let (img, ox, oy) = ib.rotate_checked(text_img, self.r, ox, oy)?;
         let (x, y) = (self.x.apply(ctx), self.y.apply(ctx));
         Ok(LayerOut::new(
             img,

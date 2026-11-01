@@ -11,7 +11,7 @@ use crate::text::FontMap;
 pub use artwork::ArtworkLayer;
 pub use asset::AssetLayer;
 use core::fmt::Debug;
-pub use label::LabelLayer;
+pub use label::{LabelLayer, Overflow};
 use libvips::VipsImage;
 pub use text::TextLayer;
 
