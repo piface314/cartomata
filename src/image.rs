@@ -17,7 +17,7 @@ pub use crate::image::position::{Position, RelativePosition};
 pub use crate::image::stroke::Stroke;
 pub use crate::image::unit::{TextUnit, Unit};
 use crate::text::attr::{Gravity, ITagAttr, LayoutAttr};
-use crate::text::{FontMap, Markup};
+use crate::text::{FontMap, Markup, PangoLayoutExt};
 use cairo::ImageSurface;
 use libvips::{ops, VipsApp, VipsImage};
 use pango::prelude::FontMapExt;
@@ -548,16 +548,17 @@ impl ImgBackend {
         layout.set_attributes(Some(&attr_list));
         layout.set_text(&text);
 
-        let (_, log_rect) = layout.extents();
         let mut base = {
-            let base = cairo::ImageSurface::create(
-                cairo::Format::ARgb32,
-                log_rect.width() / pango::SCALE,
-                log_rect.height() / pango::SCALE,
-            )?;
+            let rect = layout.combined_pixel_extents();
+            let x = rect.x();
+            let y = rect.y();
+            let w = rect.width();
+            let h = rect.height();
+            let base = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h)?;
             let cr = cairo::Context::new(&base)?;
             let (r, g, b, a) = color.rgba();
             cr.set_source_rgba(r, g, b, a);
+            cr.move_to(-(x as f64), -(y as f64));
             pangocairo::functions::show_layout(&cr, &layout);
             self.cairo_to_vips(base)?
         };

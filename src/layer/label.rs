@@ -264,11 +264,11 @@ impl Layer for LabelLayer {
             markup, &img_map, &font_map, font, self.size, self.color, &params,
         )?;
         let text_img = if self.ink_extents {
-            let (rect, _) = layout.extents();
-            let x = (rect.x() as f64 / pango::SCALE as f64).round() as i32;
-            let y = (rect.y() as f64 / pango::SCALE as f64).round() as i32;
-            let w = (rect.width() as f64 / pango::SCALE as f64).round() as i32;
-            let h = (rect.height() as f64 / pango::SCALE as f64).round() as i32;
+            let (rect, _) = layout.pixel_extents();
+            let x = rect.x();
+            let y = rect.y();
+            let w = rect.width();
+            let h = rect.height();
             vips::extract_area(&text_img, x, y, w, h).map_err(|e| ib.err(e))?
         } else {
             text_img
