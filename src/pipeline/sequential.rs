@@ -29,7 +29,7 @@ where
         source_key: T::SourceKey,
         filter: Option<Predicate>,
     ) -> Result<(), RuntimeError> {
-        visitor.on_start(&template, 0);
+        visitor.on_start(template, 0);
         let mut source = template
             .source(source_key)
             .map_err(RuntimeError::cant_open_source)?;
@@ -44,9 +44,12 @@ where
             ImgBackend::new()?
         };
         let ctx = RenderContext { backend: &backend, font_map, img_map, out: None };
-        source
-            .read(filter)
-            .map_err(RuntimeError::cant_read)?
+        let cards_iter = source.read(filter).map_err(RuntimeError::cant_read)?;
+        let (_, total) = cards_iter.size_hint();
+        if let Some(total) = total {
+            visitor.on_total(template, total);
+        }
+        cards_iter
             .filter(|card_res| visitor.on_read(template, card_res))
             .enumerate()
             .filter_map(|(i, card_res)| match card_res {
@@ -58,7 +61,7 @@ where
             })
             .for_each(|(i, card)| {
                 visitor.on_iter_start(template, 0, i, &card);
-                match Self::process(&template, &decoder, &card, &ctx) {
+                match Self::process(template, &decoder, &card, &ctx) {
                     Ok(()) => visitor.on_iter_ok(template, 0, i, card),
                     Err(e) => visitor.on_iter_err(template, 0, i, card, e),
                 }

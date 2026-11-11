@@ -94,20 +94,22 @@ where
                     .map_err(RuntimeError::cant_open_source)?;
                 visitor.on_start(&*template, 0);
 
-                let mut total: usize = 0;
-                let cards_iter = source
-                    .read(filter)
-                    .map_err(RuntimeError::cant_read)?
-                    .filter(|card_res| visitor.on_read(&*template, card_res));
+                let cards_iter = source.read(filter).map_err(RuntimeError::cant_read)?;
+                let total_hint = cards_iter.size_hint().1;
+                let mut n: usize = 0;
+                if let Some(n) = total_hint {
+                    visitor.on_total(&*template, n);
+                }
+                let cards_iter = cards_iter.filter(|r| visitor.on_read(&*template, r));
                 for (i, card) in cards_iter.enumerate() {
-                    total += 1;
+                    n += 1;
                     match card {
                         Ok(card) => queue.push(i, card)?,
                         Err(e) => visitor.on_read_err(&*template, i, e),
                     }
                 }
                 queue.done()?;
-                visitor.on_total(&*template, total);
+                visitor.on_total(&*template, n);
                 Ok(())
             })
         };
