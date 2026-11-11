@@ -99,14 +99,6 @@ pub trait Layer: Debug {
     fn effects(&self) -> &Vec<LayerFx>;
     fn effects_mut(&mut self) -> &mut Vec<LayerFx>;
     fn render(&mut self, ctx: &RenderContext) -> Result<LayerOut, ImgError>;
-    fn render_on(&mut self, base: VipsImage, ctx: &RenderContext) -> Result<VipsImage, ImgError> {
-        let mut params = self.render(ctx)?;
-        for fx in self.effects().iter() {
-            params = fx.apply(ctx, params)?;
-        }
-        let LayerOut { img, x, y, blend } = params;
-        ctx.backend.overlay(&base, &img, x, y, blend)
-    }
 
     fn stroke(mut self, stroke: Stroke) -> Self
     where
