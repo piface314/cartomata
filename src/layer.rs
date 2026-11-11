@@ -6,7 +6,7 @@ mod label;
 mod text;
 
 use crate::error::ImgError;
-use crate::image::{BlendMode, Blur, ImageMap, ImgBackend, Stroke};
+use crate::image::{BlendMode, Blur, ImageMap, ImgBackend, Stroke, Unit};
 use crate::text::FontMap;
 pub use artwork::ArtworkLayer;
 pub use asset::AssetLayer;
@@ -132,6 +132,26 @@ pub trait Layer: Debug {
         Self: Sized,
     {
         self.effects_mut().push(Blur::from(sigma).into());
+        self
+    }
+
+    fn scale(mut self, s: f64, ox: Unit, oy: Unit) -> Self
+    where
+        Self: Sized,
+    {
+        self.effects_mut().push(LayerFx::new(
+            format!("Scale {{ s: {s}, ox: {ox:?}, oy: {oy:?} }}"),
+            move |ctx: &RenderContext, out: LayerOut| -> Result<LayerOut, ImgError> {
+                let ib = ctx.backend;
+                let LayerOut { img, x, y, blend } = out;
+                let (ow, oh) = (img.get_width() as f64, img.get_height() as f64);
+                let img = ib.scale_checked(img, s, s)?;
+                let (tw, th) = (img.get_width() as f64, img.get_height() as f64);
+                let x = x + ox.apply(ow - tw).round() as i32;
+                let y = y + oy.apply(oh - th).round() as i32;
+                Ok(LayerOut { img, x, y, blend })
+            },
+        ));
         self
     }
 }
