@@ -234,7 +234,7 @@ impl LabelLayer {
         match self.overflow {
             Overflow::Shrink => {
                 let s = w as f64 / iw as f64;
-                Ok((ib.scale(&img, 1.0, s)?, self.ox))
+                Ok((ib.scale(&img, s, 1.0)?, self.ox))
             }
             ov => {
                 let w = w as f64;
