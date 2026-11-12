@@ -172,6 +172,11 @@ where
         let (i, handle) = handles.next().expect("at least 1 join handle should exist");
         let base_result = handle.join().map_err(|_| RuntimeError::thread_join(i))?;
 
+        match base_result {
+            Err(e) => return Err(e),
+            Ok(()) => {}
+        }
+
         for (i, handle) in handles {
             let _ = handle.join().map_err(|_| RuntimeError::thread_join(i))?;
         }
