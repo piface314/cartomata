@@ -1,7 +1,7 @@
 //! Represents an image layer loaded from artwork folder.
 
 use crate::error::ImgError;
-use crate::image::{FitMode, Position, Unit};
+use crate::image::{Color, FitMode, Position, Unit};
 use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 
 #[cfg(feature = "cli")]
@@ -29,6 +29,8 @@ pub struct ArtworkLayer {
     pub oy: Unit,
     #[cfg_attr(feature = "cli", serde(default))]
     pub fit: FitMode,
+    #[cfg_attr(feature = "cli", serde(default))]
+    pub required: bool,
     #[cfg_attr(feature = "cli", serde(skip))]
     effects: Vec<LayerFx>,
 }
@@ -56,6 +58,7 @@ impl ArtworkLayer {
             ox: Unit::Pct(0.5),
             oy: Unit::Pct(0.5),
             fit: Default::default(),
+            required: Default::default(),
             effects: Default::default(),
         }
     }
@@ -78,6 +81,12 @@ impl ArtworkLayer {
         self.fit = fit;
         self
     }
+
+    #[must_use]
+    pub fn with_required(mut self, required: bool) -> Self {
+        self.required = required;
+        self
+    }
 }
 
 impl Layer for ArtworkLayer {
@@ -92,9 +101,11 @@ impl Layer for ArtworkLayer {
     fn render(&mut self, ctx: &RenderContext) -> Result<LayerOut, ImgError> {
         let img_map = ctx.img_map;
         let ib = ctx.backend;
-        let path = img_map
-            .artwork_path(&self.id)
-            .ok_or_else(|| ImgError::no_artwork(&self.id))?;
+        let path = match img_map.artwork_path(&self.id) {
+            Some(path) => path,
+            None if self.required => return Err(ImgError::no_artwork(&self.id)),
+            None => return Ok(LayerOut::new(ib.create(&Color::CLEAR, 1, 1)?, 0, 0)),
+        };
         let artwork = ib.open(path.to_string_lossy())?;
         let artwork = ib.scale_to_fit(&artwork, self.w, self.h, self.fit)?;
         let (img, dx, dy) = ib.rotate_checked(artwork, self.r, self.ox, self.oy)?;
