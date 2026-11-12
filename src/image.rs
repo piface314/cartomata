@@ -299,10 +299,11 @@ impl ImgBackend {
         mode: FitMode,
     ) -> ImgResult<VipsImage> {
         let (iw, ih) = (img.get_width() as f64, img.get_height() as f64);
-        let aspect_ratio = iw / ih;
+        let tg_ratio = w / h;
+        let img_ratio = iw / ih;
         let (sx, sy) = match mode {
             FitMode::Contain | FitMode::Cover => {
-                if (aspect_ratio < 1.0) ^ (mode == FitMode::Contain) {
+                if (img_ratio < tg_ratio) ^ (mode == FitMode::Contain) {
                     let s = w / iw;
                     (s, s)
                 } else {
