@@ -113,6 +113,10 @@ impl<'de> de::Visitor<'de> for UnitVisitor {
     visit_int!(visit_i16 i16);
     visit_int!(visit_i32 i32);
     visit_int!(visit_i64 i64);
+    visit_int!(visit_u8 u8);
+    visit_int!(visit_u16 u16);
+    visit_int!(visit_u32 u32);
+    visit_int!(visit_u64 u64);
     visit_float!(visit_f32 f32);
     visit_float!(visit_f64 f64);
 
@@ -192,6 +196,10 @@ impl<'de> de::Visitor<'de> for TextUnitVisitor {
     visit_int!(visit_i16 i16);
     visit_int!(visit_i32 i32);
     visit_int!(visit_i64 i64);
+    visit_int!(visit_u8 u8);
+    visit_int!(visit_u16 u16);
+    visit_int!(visit_u32 u32);
+    visit_int!(visit_u64 u64);
     visit_float!(visit_f32 f32);
     visit_float!(visit_f64 f64);
 }
