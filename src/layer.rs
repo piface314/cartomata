@@ -147,8 +147,8 @@ pub trait Layer: Debug {
                 let (ow, oh) = (img.get_width() as f64, img.get_height() as f64);
                 let img = ib.scale_checked(img, s, s)?;
                 let (tw, th) = (img.get_width() as f64, img.get_height() as f64);
-                let x = x + ox.apply(ow - tw).round() as i32;
-                let y = y + oy.apply(oh - th).round() as i32;
+                let x = x - ox.apply(tw - ow).round() as i32;
+                let y = y - oy.apply(th - oh).round() as i32;
                 Ok(LayerOut { img, x, y, blend })
             },
         ));
