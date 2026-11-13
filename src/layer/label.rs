@@ -4,7 +4,7 @@ use crate::error::ImgError;
 use crate::image::{Color, ImgBackend, Position, TextUnit, Unit};
 use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 use crate::text::attr::{Direction, Gravity, GravityHint, LayoutAttr};
-use crate::text::Markup;
+use crate::text::{Markup, PrintOptions};
 
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
@@ -25,7 +25,7 @@ pub struct LabelLayer {
     pub y: Position,
     pub font: Option<String>,
     #[cfg_attr(feature = "cli", serde(default = "default_size"))]
-    pub size: f64,
+    pub size: f32,
     #[cfg_attr(feature = "cli", serde(default = "default_color"))]
     pub color: Color,
     pub w: Option<i32>,
@@ -58,7 +58,7 @@ const fn default_text_unit() -> TextUnit {
     TextUnit::Baseline
 }
 
-const fn default_size() -> f64 {
+const fn default_size() -> f32 {
     12.0
 }
 
@@ -115,7 +115,7 @@ impl LabelLayer {
     }
 
     #[must_use]
-    pub fn with_font(mut self, font: impl Into<String>, size: impl Into<f64>) -> Self {
+    pub fn with_font(mut self, font: impl Into<String>, size: impl Into<f32>) -> Self {
         self.font = Some(font.into());
         self.size = size.into();
         self
@@ -261,18 +261,17 @@ impl Layer for LabelLayer {
         let font = self.font.as_ref().map(|x| x.as_str()).unwrap_or("default");
         let params = self.layout_params();
         let (text_img, layout) = ib.print(
-            markup, &img_map, &font_map, font, self.size, self.color, &params,
+            markup,
+            &img_map,
+            &font_map,
+            PrintOptions {
+                font,
+                size: self.size,
+                color: self.color,
+                params: &params,
+                ink_extents: self.ink_extents,
+            },
         )?;
-        let text_img = if self.ink_extents {
-            let (rect, _) = layout.pixel_extents();
-            let x = rect.x();
-            let y = rect.y();
-            let w = rect.width();
-            let h = rect.height();
-            vips::extract_area(&text_img, x, y, w, h).map_err(|e| ib.err(e))?
-        } else {
-            text_img
-        };
         let text_img = ib.scale_checked(text_img, 1.0, self.sy)?;
         let h = ((layout.baseline() as f64) * self.sy).round() as i32;
         let oy = self.oy.into_unit(h);

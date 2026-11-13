@@ -5,6 +5,8 @@ mod font;
 mod markup;
 mod parser;
 
+use crate::image::Color;
+use attr::LayoutAttr;
 pub use font::{FontMap, FontPath};
 pub use markup::Markup;
 pub use parser::{escape, unescape};
@@ -26,3 +28,23 @@ impl PangoLayoutExt for pango::Layout {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct PrintOptions<'s> {
+    pub font: &'s str,
+    pub size: f32,
+    pub color: Color,
+    pub params: &'s [LayoutAttr<'s>],
+    pub ink_extents: bool,
+}
+
+impl Default for PrintOptions<'static> {
+    fn default() -> Self {
+        Self {
+            font: "default",
+            size: 12.0,
+            color: Color::BLACK,
+            params: &[],
+            ink_extents: false,
+        }
+    }
+}

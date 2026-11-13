@@ -4,8 +4,7 @@ use crate::error::ImgError;
 use crate::image::{Color, Position, TextUnit, Unit};
 use crate::layer::{Layer, LayerFx, LayerOut, RenderContext};
 use crate::text::attr::{Alignment, Direction, Gravity, GravityHint, LayoutAttr, WrapMode};
-use crate::text::Markup;
-use libvips::ops as vips;
+use crate::text::{Markup, PrintOptions};
 
 #[cfg(feature = "cli")]
 use cartomata_derive::LuaLayer;
@@ -25,7 +24,7 @@ pub struct TextLayer {
     pub w: i32,
     pub font: Option<String>,
     #[cfg_attr(feature = "cli", serde(default = "default_size"))]
-    pub size: f64,
+    pub size: f32,
     #[cfg_attr(feature = "cli", serde(default = "default_color"))]
     pub color: Color,
     #[cfg_attr(feature = "cli", serde(default))]
@@ -55,7 +54,7 @@ const fn default_color() -> Color {
     Color::BLACK
 }
 
-const fn default_size() -> f64 {
+const fn default_size() -> f32 {
     12.0
 }
 
@@ -95,7 +94,7 @@ impl TextLayer {
     }
 
     #[must_use]
-    pub fn with_font(mut self, font: impl Into<String>, size: impl Into<f64>) -> Self {
+    pub fn with_font(mut self, font: impl Into<String>, size: impl Into<f32>) -> Self {
         self.font = Some(font.into());
         self.size = size.into();
         self
@@ -237,18 +236,17 @@ impl Layer for TextLayer {
         let font = self.font.as_ref().map(|x| x.as_str()).unwrap_or("default");
         let params = self.layout_params();
         let (text_img, layout) = ib.print(
-            markup, &img_map, &font_map, font, self.size, self.color, &params,
+            markup,
+            &img_map,
+            &font_map,
+            PrintOptions {
+                font,
+                size: self.size,
+                color: self.color,
+                params: &params,
+                ink_extents: self.ink_extents,
+            },
         )?;
-        let text_img = if self.ink_extents {
-            let (rect, _) = layout.pixel_extents();
-            let x = rect.x();
-            let y = rect.y();
-            let w = rect.width();
-            let h = rect.height();
-            vips::extract_area(&text_img, x, y, w, h).map_err(|e| ib.err(e))?
-        } else {
-            text_img
-        };
         let h = layout.baseline();
         let (img, ox, oy) = ib.rotate_checked(text_img, self.r, self.ox, self.oy.into_unit(h))?;
         let (x, y) = (self.x.apply(ctx), self.y.apply(ctx));

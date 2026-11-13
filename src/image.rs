@@ -16,8 +16,8 @@ pub use crate::image::map::ImageMap;
 pub use crate::image::position::{Position, RelativePosition};
 pub use crate::image::stroke::Stroke;
 pub use crate::image::unit::{TextUnit, Unit};
-use crate::text::attr::{Gravity, ITagAttr, LayoutAttr};
-use crate::text::{FontMap, Markup, PangoLayoutExt};
+use crate::text::attr::{Gravity, ITagAttr};
+use crate::text::{FontMap, Markup, PangoLayoutExt, PrintOptions};
 use cairo::ImageSurface;
 use libvips::{ops, VipsApp, VipsImage};
 use pango::prelude::FontMapExt;
@@ -525,11 +525,9 @@ impl ImgBackend {
         markup: Markup,
         im: &ImageMap,
         fm: &FontMap,
-        font: &str,
-        size: f64,
-        color: Color,
-        params: &[LayoutAttr],
+        opts: PrintOptions,
     ) -> Result<(VipsImage, pango::Layout), ImgError> {
+        let PrintOptions { font, size, color, params, ink_extents } = opts;
         if fm.get(font).is_none() {
             return Err(TextError::font_missing(font).into());
         }
@@ -550,7 +548,11 @@ impl ImgBackend {
         layout.set_text(&text);
 
         let mut base = {
-            let rect = layout.combined_pixel_extents();
+            let rect = if ink_extents {
+                layout.pixel_extents().0
+            } else {
+                layout.combined_pixel_extents()
+            };
             let x = rect.x();
             let y = rect.y();
             let w = rect.width();
