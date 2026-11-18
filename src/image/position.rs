@@ -1,4 +1,4 @@
-use crate::{image::Unit, layer::LayerOut};
+use crate::{image::Unit, layer::RenderContext};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -48,10 +48,10 @@ impl From<RelativePosition> for Position {
     }
 }
 impl Position {
-    pub fn apply(&self, layers: impl AsRef<[LayerOut]>) -> f64 {
+    pub fn apply(&self, ctx: &RenderContext) -> f64 {
         match self {
             Self::Absolute(x) => *x,
-            Self::Relative(r) => r.apply(layers).unwrap_or_default()
+            Self::Relative(r) => r.apply(ctx).unwrap_or_default(),
         }
     }
 }
@@ -78,9 +78,9 @@ impl RelativePosition {
         self
     }
 
-    pub fn apply(&self, layers: impl AsRef<[LayerOut]>) -> Option<f64> {
+    pub fn apply(&self, ctx: &RenderContext) -> Option<f64> {
+        let layers = &ctx.out?.layers;
         let RelativePosition { layer: i, origin, offset, axis } = self;
-        let layers = layers.as_ref();
         let n = layers.len() as isize;
         let index = if *i >= 0 { *i } else { n + i };
         let layer = layers.get(index as usize)?;

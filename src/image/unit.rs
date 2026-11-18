@@ -38,6 +38,27 @@ impl From<Unit> for TextUnit {
     }
 }
 
+impl std::ops::Neg for Unit {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        match self {
+            Self::Px(v) => Self::Px(-v),
+            Self::Pct(v) => Self::Pct(-v),
+        }
+    }
+}
+
+impl std::ops::Neg for TextUnit {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        match self {
+            Self::Px(v) => Self::Px(-v),
+            Self::Pct(v) => Self::Pct(-v),
+            Self::Baseline => Self::Baseline,
+        }
+    }
+}
+
 impl Unit {
     pub fn apply(&self, x: f64) -> f64 {
         match self {
@@ -53,6 +74,20 @@ impl Unit {
     pub fn full() -> Self {
         Self::Pct(1.0)
     }
+
+    pub fn is_px(&self) -> bool {
+        match self {
+            Self::Px(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_pct(&self) -> bool {
+        match self {
+            Self::Pct(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl TextUnit {
@@ -61,6 +96,27 @@ impl TextUnit {
             Self::Px(x) => Unit::Px(*x),
             Self::Pct(a) => Unit::Pct(*a),
             Self::Baseline => Unit::Px((h / pango::SCALE) as f64),
+        }
+    }
+
+    pub fn is_px(&self) -> bool {
+        match self {
+            Self::Px(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_pct(&self) -> bool {
+        match self {
+            Self::Pct(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_baseline(&self) -> bool {
+        match self {
+            Self::Baseline => true,
+            _ => false,
         }
     }
 }

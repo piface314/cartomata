@@ -13,6 +13,7 @@ pub use asset::AssetLayer;
 use core::fmt::Debug;
 pub use label::{LabelLayer, Overflow};
 use libvips::VipsImage;
+use std::collections::VecDeque;
 pub use text::TextLayer;
 
 #[derive(Clone)]
@@ -24,6 +25,10 @@ pub struct RenderContext<'g, 'l> {
 }
 
 impl<'g, 'l> RenderContext<'g, 'l> {
+    pub fn new(backend: &'g ImgBackend, font_map: &'g FontMap, img_map: &'g ImageMap) -> Self {
+        Self { backend, font_map, img_map, out: None }
+    }
+
     pub fn with_out(&self, out: &'l CardOut) -> Self {
         Self {
             backend: self.backend,
@@ -34,21 +39,29 @@ impl<'g, 'l> RenderContext<'g, 'l> {
     }
 }
 
-impl<'g, 'l> AsRef<[LayerOut]> for RenderContext<'g, 'l> {
-    #[inline]
-    fn as_ref(&self) -> &[LayerOut] {
-        self.out.as_ref().map(|out| out.as_ref()).unwrap_or(&[])
-    }
-}
-
 pub struct CardOut {
-    pub layers: Vec<LayerOut>,
+    pub layers: VecDeque<LayerOut>,
     pub img: VipsImage,
 }
 
-impl AsRef<[LayerOut]> for CardOut {
+impl CardOut {
+    fn with_capacity(img: VipsImage, capacity: usize) -> Self {
+        Self { layers: VecDeque::with_capacity(capacity), img }
+    }
+
+    fn push(&mut self, layer: LayerOut) {
+        let cap = self.layers.capacity();
+        let n = self.layers.len();
+        if n >= cap {
+            self.layers.pop_front();
+        }
+        self.layers.push_back(layer);
+    }
+}
+
+impl AsRef<VecDeque<LayerOut>> for CardOut {
     #[inline]
-    fn as_ref(&self) -> &[LayerOut] {
+    fn as_ref(&self) -> &VecDeque<LayerOut> {
         &self.layers
     }
 }
@@ -154,6 +167,13 @@ pub trait Layer: Debug {
         ));
         self
     }
+
+    fn scale0(self, s: f64) -> Self
+    where
+        Self: Sized,
+    {
+        self.scale(s, Unit::default(), Unit::default())
+    }
 }
 
 #[derive(Debug)]
@@ -167,16 +187,16 @@ impl<'a> LayerStack<'a> {
         let img = ctx.backend.create(&bg, w, h)?;
 
         let LayerStack(layers) = self;
-        let mut out = CardOut { img, layers: Vec::with_capacity(layers.len()) };
+        let mut out = CardOut::with_capacity(img, ctx.img_map.layer_memory);
         for mut layer in layers.into_iter() {
-            let ctx = ctx.with_out(&out);
-            let mut params = layer.render(&ctx)?;
+            let ctx_ = ctx.with_out(&out);
+            let mut params = layer.render(&ctx_)?;
             for fx in layer.effects().iter() {
-                params = fx.apply(&ctx, params)?;
+                params = fx.apply(&ctx_, params)?;
             }
             let LayerOut { img, x, y, blend } = &params;
-            out.img = ctx.backend.overlay(&out.img, img, *x, *y, *blend)?;
-            out.layers.push(params);
+            out.img = ctx_.backend.overlay(&out.img, img, *x, *y, *blend)?;
+            out.push(params);
         }
         Ok(out.img)
     }

@@ -43,7 +43,7 @@ where
         } else {
             ImgBackend::new()?
         };
-        let ctx = RenderContext { backend: &backend, font_map, img_map, out: None };
+        let ctx = RenderContext::new(&backend, font_map, img_map);
         let cards_iter = source.read(filter).map_err(RuntimeError::cant_read)?;
         let (_, total) = cards_iter.size_hint();
         if let Some(total) = total {

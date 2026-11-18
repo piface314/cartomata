@@ -10,6 +10,7 @@ pub struct ImageMap {
     pub placeholder: Option<PathBuf>,
     pub card_size: (i32, i32),
     pub background: Color,
+    pub layer_memory: usize,
 }
 
 impl ImageMap {

@@ -90,20 +90,38 @@ impl ImgBackend {
         format!("VipsImage({filename}: {w}x{h} {format}, {bands} bands, {interp})")
     }
 
-    pub fn reinterpret(&self, img: &VipsImage) -> ImgResult<VipsImage> {
-        let img = ops::cast(&img, ops::BandFormat::Uchar).map_err(|e| self.err(e))?;
-        let img = ops::copy_with_opts(
-            &img,
-            &ops::CopyOptions {
-                interpretation: ops::Interpretation::Srgb,
-                width: img.get_width(),
-                height: img.get_height(),
-                bands: img.get_bands(),
-                format: ops::BandFormat::Uchar,
-                ..Default::default()
-            },
+    pub fn track_mem(&self) -> String {
+        let current = self.vips_app.tracked_get_mem();
+        let peak = self.vips_app.tracked_get_mem_highwater();
+        let allocations = self.vips_app.tracked_get_allocs();
+        format!(
+            "VIPS: current={:.2} MB, peak={:.2} MB, allocations={}",
+            current as f64 / 1024.0 / 1024.0,
+            peak as f64 / 1024.0 / 1024.0,
+            allocations
         )
-        .map_err(|e| self.err(e))?;
+    }
+
+    pub fn reinterpret(&self, img: VipsImage) -> ImgResult<VipsImage> {
+        let img = match img.get_format() {
+            Ok(ops::BandFormat::Uchar) => img,
+            _ => ops::cast(&img, ops::BandFormat::Uchar).map_err(|e| self.err(e))?,
+        };
+        let img = match img.get_interpretation() {
+            Ok(ops::Interpretation::Srgb) => img,
+            _ => ops::copy_with_opts(
+                &img,
+                &ops::CopyOptions {
+                    interpretation: ops::Interpretation::Srgb,
+                    width: img.get_width(),
+                    height: img.get_height(),
+                    bands: img.get_bands(),
+                    format: ops::BandFormat::Uchar,
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| self.err(e))?,
+        };
         if img.get_bands() == 3 {
             ops::bandjoin_const(&img, &mut [255.0]).map_err(|e| self.err(e))
         } else {
@@ -112,7 +130,7 @@ impl ImgBackend {
     }
 
     pub fn create(&self, bg: &Color, width: i32, height: i32) -> ImgResult<VipsImage> {
-        self.reinterpret(&self.create_raw(bg, width, height)?)
+        self.reinterpret(self.create_raw(bg, width, height)?)
     }
 
     pub fn create_raw(&self, bg: &Color, width: i32, height: i32) -> ImgResult<VipsImage> {
@@ -137,11 +155,11 @@ impl ImgBackend {
             .map_err(ImgError::cairo_to_vips)?;
         let mut img = VipsImage::new_from_buffer(&buffer, "").map_err(|e| self.err(e))?;
         img.image_wio_input().map_err(|e| self.err(e))?;
-        self.reinterpret(&img)
+        self.reinterpret(img)
     }
 
     pub fn open(&self, fp: impl AsRef<str>) -> ImgResult<VipsImage> {
-        self.reinterpret(&self.open_raw(fp.as_ref())?)
+        self.reinterpret(self.open_raw(fp.as_ref())?)
     }
 
     pub fn open_raw(&self, fp: impl AsRef<str>) -> ImgResult<VipsImage> {
@@ -159,23 +177,23 @@ impl ImgBackend {
             None => img_a,
         };
         let img = ops::bandjoin(&mut [rgb, out_a]).map_err(|e| self.err(e))?;
-        self.reinterpret(&img)
+        Ok(img)
     }
 
     /// Multiplies the image opacity by the given value.
     pub fn set_opacity(&self, img: &VipsImage, alpha: f64) -> ImgResult<VipsImage> {
         let n_bands = img.get_bands();
         let img_a = ops::extract_band(img, n_bands - 1).map_err(|e| self.err(e))?;
-        let img_a = self.uchar_to_double(&img_a)?;
+        let img_a = self.uchar_to_float(&img_a)?;
         let new_a = VipsImage::new_from_image1(&img_a, alpha).map_err(|e| self.err(e))?;
         let out_a = ops::multiply(&img_a, &new_a).map_err(|e| self.err(e))?;
-        let out_a = self.double_to_uchar(&out_a)?;
+        let out_a = self.float_to_uchar(&out_a)?;
         if n_bands > 1 {
             let rgb =
                 ops::extract_band_with_opts(img, 0, &ops::ExtractBandOptions { n: n_bands - 1 })
                     .map_err(|e| self.err(e))?;
             let img = ops::bandjoin(&mut [rgb, out_a]).map_err(|e| self.err(e))?;
-            self.reinterpret(&img)
+            Ok(img)
         } else {
             Ok(out_a)
         }
@@ -212,18 +230,18 @@ impl ImgBackend {
         Ok(out)
     }
 
-    /// Casts a [`libvips::ops::BandFormat::Uchar`] image to [`libvips::ops::BandFormat::Double`],
-    /// scaling its values from the `[0.0, 1.0]` range to the `[0, 255]` range.
-    pub fn uchar_to_double(&self, img: &VipsImage) -> ImgResult<VipsImage> {
-        let out = ops::cast(img, ops::BandFormat::Double).map_err(|e| self.err(e))?;
+    /// Casts a [`libvips::ops::BandFormat::Uchar`] image to [`libvips::ops::BandFormat::Float`],
+    /// scaling its values from the `[0, 255]` range to the `[0.0, 1.0]` range.
+    pub fn uchar_to_float(&self, img: &VipsImage) -> ImgResult<VipsImage> {
+        let out = ops::cast(img, ops::BandFormat::Float).map_err(|e| self.err(e))?;
         let const255 = &VipsImage::new_from_image1(&out, 255.0).map_err(|e| self.err(e))?;
         let out = ops::divide(&out, &const255).map_err(|e| self.err(e))?;
         Ok(out)
     }
 
-    /// Casts a [`libvips::ops::BandFormat::Double`] image to [`libvips::ops::BandFormat::Uchar`],
-    /// scaling its values from the `[0, 255]` range to the `[0.0, 1.0]` range.
-    pub fn double_to_uchar(&self, img: &VipsImage) -> ImgResult<VipsImage> {
+    /// Casts a [`libvips::ops::BandFormat::Float`] image to [`libvips::ops::BandFormat::Uchar`],
+    /// scaling its values from the `[0.0, 1.0]` range to the `[0, 255]` range.
+    pub fn float_to_uchar(&self, img: &VipsImage) -> ImgResult<VipsImage> {
         let const255 = &VipsImage::new_from_image1(&img, 255.0).map_err(|e| self.err(e))?;
         let out = ops::multiply(&img, &const255).map_err(|e| self.err(e))?;
         let out = ops::cast(&out, ops::BandFormat::Uchar).map_err(|e| self.err(e))?;
@@ -396,7 +414,6 @@ impl ImgBackend {
         let (r, g, b) = color.scaled_rgb();
         let stroke = VipsImage::new_from_image(&alpha, &[r, g, b]).map_err(|e| self.err(e))?;
         let stroke = ops::bandjoin(&mut [stroke, alpha]).map_err(|e| self.err(e))?;
-        let stroke = self.reinterpret(&stroke)?;
         let img = ops::composite2(&stroke, &img, ops::BlendMode::Over).map_err(|e| self.err(e))?;
         Ok(img)
     }
@@ -493,9 +510,9 @@ impl ImgBackend {
         let mask = ops::extract_band(mask, mask_bands - 1).map_err(|e| self.err(e))?;
         let img_bands = img.get_bands();
         let img_a = ops::extract_band(img, img_bands - 1).map_err(|e| self.err(e))?;
-        let img_a = self.uchar_to_double(&img_a)?;
+        let img_a = self.uchar_to_float(&img_a)?;
         let out_a = ops::multiply(&img_a, &mask).map_err(|e| self.err(e))?;
-        let out_a = self.double_to_uchar(&out_a)?;
+        let out_a = self.float_to_uchar(&out_a)?;
         if img_bands > 1 {
             let img_rgb =
                 ops::extract_band_with_opts(img, 0, &ops::ExtractBandOptions { n: img_bands - 1 })

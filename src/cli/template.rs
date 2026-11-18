@@ -56,6 +56,7 @@ impl DynTemplate {
             extensions: config.base.ext,
             card_size: (config.base.size.width, config.base.size.height),
             placeholder: config.assets.map(|cfg| cfg.placeholder).unwrap_or_default(),
+            layer_memory: 0,
         };
 
         let mut font_map = FontMap::new()?;
