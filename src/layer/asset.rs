@@ -59,8 +59,20 @@ impl AssetLayer {
     }
 
     #[must_use]
+    pub fn with_width_opt(mut self, w: Option<i32>) -> Self {
+        self.w = w;
+        self
+    }
+
+    #[must_use]
     pub fn with_height(mut self, h: impl Into<i32>) -> Self {
         self.h = Some(h.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_height_opt(mut self, h: Option<i32>) -> Self {
+        self.h = h;
         self
     }
 
